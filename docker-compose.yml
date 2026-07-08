@@ -1,0 +1,29 @@
+services:
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: sandswap-qdrant
+
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: sandswap-ollama
+
+    ports:
+      - "11434:11434"
+
+    volumes:
+      - ollama:/root/.ollama
+
+    restart: unless-stopped
+
+volumes:
+  ollama:

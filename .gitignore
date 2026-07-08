@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+
+# Virtual Environment
+.venv/
+venv/
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+logs/
+*.log
+
+# Python Cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build
+build/
+dist/
+
+# Coverage
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+data/uploads/*
+!data/uploads/.gitkeep
+
+# Local Database
+*.db
+
+# Vector DB
+qdrant_storage/
+chroma_db/
+

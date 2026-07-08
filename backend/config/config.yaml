@@ -1,0 +1,12 @@
+app:
+  name: "SandSwap AI"
+  version: "0.1.0"
+
+llm:
+  default_model: "llama3"
+
+memory:
+  vector_db: "qdrant"
+
+logging:
+  level: "INFO"
