@@ -14,11 +14,14 @@ from backend.chat.infrastructure.conversation_store import ConversationStore
 from backend.config.config_manager import ConfigManager
 from backend.config.settings import Settings
 from backend.core.container.container import Container
+from backend.core.logging.logger import LoggerFactory
 from backend.core.registry import registry
 from backend.llm.client import OllamaClient
 from backend.memory.core.memory_manager import MemoryManager
 from backend.memory.extractors.llm_memory_extractor import LLMMemoryExtractor
 from backend.memory.stores.sqlite.sqlite_store import SQLiteMemoryStore
+
+logger = LoggerFactory.get_logger("RuntimeDependencies")
 
 
 def get_container() -> Container:
@@ -54,6 +57,8 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         memory_extractor=memory_extractor,
     )
 
+    logger.info("Registering runtime dependencies")
+
     shared_container.register("settings", settings)
     shared_container.register("config_manager", config_manager)
     shared_container.register("memory_store", memory_store)
@@ -70,6 +75,7 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     registry.register("memory_manager", memory_manager)
     registry.register("ollama_client", ollama_client)
 
+    logger.info("Runtime dependencies registered")
     return shared_container
 
 

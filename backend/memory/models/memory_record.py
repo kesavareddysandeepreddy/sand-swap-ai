@@ -5,7 +5,7 @@ SandSwap AI - Memory Record
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -32,8 +32,8 @@ class MemoryRecord:
 
     source: str = "chat"
 
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_accessed: datetime | None = None
 
     access_count: int = 0
@@ -48,12 +48,12 @@ class MemoryRecord:
 
     @property
     def expired(self) -> bool:
-        return self.expires_at is not None and datetime.utcnow() > self.expires_at
+        return self.expires_at is not None and datetime.now(UTC) > self.expires_at
 
     def touch(self) -> None:
         self.access_count += 1
-        self.last_accessed = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.last_accessed = datetime.now(UTC)
+        self.updated_at = datetime.now(UTC)
 
     def update(
         self,
@@ -70,4 +70,4 @@ class MemoryRecord:
         if confidence is not None:
             self.confidence = confidence
 
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(UTC)

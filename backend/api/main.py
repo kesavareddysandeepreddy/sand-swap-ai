@@ -11,12 +11,16 @@ from backend.api.dependencies import register_runtime_dependencies
 from backend.api.router import router as api_router
 from backend.core.container.container import Container
 from backend.core.lifecycle.lifecycle_manager import LifecycleManager
+from backend.core.logging.logger import LoggerFactory
 from backend.core.registry import registry
+
+logger = LoggerFactory.get_logger("API")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize runtime services for the FastAPI application."""
+    logger.info("Starting SandSwap AI runtime")
     container = Container()
     container.clear()
     registry.clear()
@@ -31,6 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        logger.info("Stopping SandSwap AI runtime")
         await lifecycle_manager.shutdown()
 
 

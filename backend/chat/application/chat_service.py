@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import requests
+
 from backend.chat.application.context_builder import ContextBuilder
 from backend.chat.application.prompt_builder import PromptBuilder
 from backend.chat.application.session_manager import SessionManager
@@ -114,7 +116,7 @@ class ChatService(BaseService):
         """Extract long-term memories after the response is returned."""
         try:
             await asyncio.to_thread(self.memory_extractor.process, user_id, message)
-        except Exception as exc:  # pragma: no cover - defensive logging
+        except (requests.RequestException, RuntimeError, ValueError) as exc:
             self.logger.exception("Memory extraction failed: %s", exc)
 
 

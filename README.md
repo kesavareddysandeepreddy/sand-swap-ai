@@ -47,6 +47,46 @@ See:
 
 docs/roadmap/
 
+## Running API
+
+Start the FastAPI runtime locally with:
+
+```bash
+uvicorn backend.api.main:app --reload
+```
+
+## Running tests
+
+Run the test suite with:
+
+```bash
+pytest
+```
+
+## Formatting
+
+Format Python source files with:
+
+```bash
+black .
+isort .
+```
+
+## Linting
+
+Run lint checks with:
+
+```bash
+ruff check .
+```
+
+## Development workflow
+
+1. Create and activate a virtual environment in `.venv`.
+2. Install dependencies with `pip install -r requirements.txt`.
+3. Run the API locally with `uvicorn backend.api.main:app --reload`.
+4. Execute `pytest`, `ruff check .`, `black .`, and `isort .` before submitting changes.
+
 ## License
 
 Apache-2.0

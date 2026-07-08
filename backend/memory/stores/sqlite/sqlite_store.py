@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from backend.memory.models.memory_record import MemoryRecord
@@ -69,8 +69,8 @@ class SQLiteMemoryStore(BaseMemoryStore):
             importance=row["importance"],
             confidence=row["confidence"],
             source=row["source"],
-            created_at=SQLiteMemoryStore._dt(row["created_at"]) or datetime.utcnow(),
-            updated_at=SQLiteMemoryStore._dt(row["updated_at"]) or datetime.utcnow(),
+            created_at=SQLiteMemoryStore._dt(row["created_at"]) or datetime.now(UTC),
+            updated_at=SQLiteMemoryStore._dt(row["updated_at"]) or datetime.now(UTC),
             last_accessed=SQLiteMemoryStore._dt(row["last_accessed"]),
             access_count=row["access_count"] or 0,
             expires_at=SQLiteMemoryStore._dt(row["expires_at"]),

@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+*.pyc
 *.py[cod]
 *.so
 *.egg-info/
@@ -13,6 +14,7 @@ venv/
 
 # IDE
 .vscode/
+.vscode/settings.json
 .idea/
 
 # Logs
