@@ -17,7 +17,7 @@ export class ApiError extends Error {
 export class ApiClient {
     private readonly baseUrl: string;
 
-    constructor(baseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000") {
+    constructor(baseUrl = import.meta.env.VITE_API_BASE_URL ?? "") {
         this.baseUrl = baseUrl.replace(/\/$/, "");
     }
 
