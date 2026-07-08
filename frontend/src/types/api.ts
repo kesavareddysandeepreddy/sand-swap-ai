@@ -1,21 +1,21 @@
 export interface HealthResponse {
-  status: string;
-  service: string;
-  version: string;
+    status: string;
+    service: string;
+    version: string;
 }
 
 export interface ChatRequest {
-  user_id: string;
-  message: string;
-  conversation_id?: string;
+    user_id: string;
+    message: string;
+    conversation_id?: string;
 }
 
 export interface ChatResponse {
-  conversation_id: string;
-  response: string;
-  memories_saved: number;
+    conversation_id: string;
+    response: string;
+    memories_saved: number;
 }
 
 export interface ApiErrorPayload {
-  detail?: string;
+    detail?: string;
 }
