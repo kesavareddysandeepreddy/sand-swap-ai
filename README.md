@@ -38,8 +38,7 @@ data/
 - Ollama
 - Qdrant
 - Docker
-- Streamlit (initial)
-- React (future)
+- React + Vite + TypeScript
 
 ## Roadmap
 
@@ -62,6 +61,26 @@ Run the test suite with:
 ```bash
 pytest
 ```
+
+Frontend validation:
+
+```bash
+cd frontend
+npm run lint
+npm run build
+```
+
+## Memory API
+
+Memory management endpoints are available under `/memory`:
+
+- `GET /memory` - list memories with `page`, `page_size`, `search`, `category`, and `min_importance` filters
+- `GET /memory/{memory_id}` - fetch a single memory
+- `PATCH /memory/{memory_id}` - edit category/key/value/importance
+- `DELETE /memory/{memory_id}` - delete a single memory
+- `DELETE /memory` - delete all memories
+
+See `docs/api/memory-management.md` for details and payload schemas.
 
 ## Formatting
 

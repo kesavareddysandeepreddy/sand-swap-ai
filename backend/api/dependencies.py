@@ -112,3 +112,15 @@ def get_chat_service() -> ChatService:
 
 
 ChatServiceDependency = Annotated[ChatService, Depends(get_chat_service)]
+
+
+def get_memory_manager() -> MemoryManager:
+    """Resolve the shared memory manager."""
+    container = get_container()
+    if container.exists("memory_manager"):
+        return container.resolve("memory_manager")
+    register_runtime_dependencies(container)
+    return container.resolve("memory_manager")
+
+
+MemoryManagerDependency = Annotated[MemoryManager, Depends(get_memory_manager)]

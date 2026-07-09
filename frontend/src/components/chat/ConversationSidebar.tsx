@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { NavLink } from "react-router-dom";
 
 import type { ConversationState } from "../../types/chat";
 import { formatTimestamp } from "../../utils/date";
@@ -45,6 +46,24 @@ export const ConversationSidebar = ({
 
     return (
         <aside className="sidebar">
+            <nav className="sidebar-nav" aria-label="Primary">
+                <NavLink
+                    to="/chat"
+                    className={({ isActive }) =>
+                        `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
+                    }
+                >
+                    Chat
+                </NavLink>
+                <NavLink
+                    to="/memory"
+                    className={({ isActive }) =>
+                        `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
+                    }
+                >
+                    Memory
+                </NavLink>
+            </nav>
             <button className="new-chat-button" type="button" onClick={onNewConversation}>
                 New Conversation
             </button>
