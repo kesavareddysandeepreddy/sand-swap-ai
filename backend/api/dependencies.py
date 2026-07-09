@@ -22,6 +22,18 @@ from backend.llm.client import OllamaClient
 from backend.memory.core.memory_manager import MemoryManager
 from backend.memory.extractors.llm_memory_extractor import LLMMemoryExtractor
 from backend.memory.stores.sqlite.sqlite_store import SQLiteMemoryStore
+from backend.rag.application.document_service import (
+    DocumentIngestionService,
+    DocumentRetrievalService,
+)
+from backend.rag.chunkers.factory import ChunkerFactory
+from backend.rag.embeddings.providers import EmbeddingProviderFactory
+from backend.rag.infrastructure.sqlite_document_repository import (
+    SQLiteDocumentRepository,
+)
+from backend.rag.parsers.factory import ParserFactory
+from backend.rag.retrievers.semantic_retriever import SemanticRetriever
+from backend.rag.vectorstores.sqlite_vector_store import SQLiteVectorStore
 
 logger = LoggerFactory.get_logger("RuntimeDependencies")
 
@@ -30,6 +42,26 @@ def _get_memory_db_path() -> str:
     """Return the configured on-disk memory database path."""
     raw_path = os.getenv("MEMORY_DB_PATH", "data/memory/memory.db")
     return str(Path(raw_path).resolve())
+
+
+def _get_rag_document_db_path() -> str:
+    """Return the configured SQLite path for document metadata."""
+    explicit = os.getenv("RAG_DOCUMENT_DB_PATH")
+    if explicit:
+        return str(Path(explicit).resolve())
+
+    base_path = Path(os.getenv("RAG_DB_PATH", "data/documents/rag")).resolve()
+    return str(base_path.with_name(f"{base_path.name}_documents.db"))
+
+
+def _get_rag_vector_db_path() -> str:
+    """Return the configured SQLite path for vector index data."""
+    explicit = os.getenv("RAG_VECTOR_DB_PATH")
+    if explicit:
+        return str(Path(explicit).resolve())
+
+    base_path = Path(os.getenv("RAG_DB_PATH", "data/documents/rag")).resolve()
+    return str(base_path.with_name(f"{base_path.name}_vectors.db"))
 
 
 def get_container() -> Container:
@@ -46,14 +78,48 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     default_model = str(config_manager.get("llm.default_model", "llama3"))
 
     memory_db_path = _get_memory_db_path()
+    rag_document_db_path = _get_rag_document_db_path()
+    rag_vector_db_path = _get_rag_vector_db_path()
     logger.info("Runtime memory SQLite path: %s", memory_db_path)
+    logger.info("Runtime RAG document SQLite path: %s", rag_document_db_path)
+    logger.info("Runtime RAG vector SQLite path: %s", rag_vector_db_path)
     memory_store = SQLiteMemoryStore(db_path=memory_db_path)
     memory_manager = MemoryManager(store=memory_store)
     conversation_store = ConversationStore(db_path=":memory:")
     session_manager = SessionManager(conversation_store=conversation_store)
+    document_repository = SQLiteDocumentRepository(db_path=rag_document_db_path)
+    vector_store = SQLiteVectorStore(db_path=rag_vector_db_path)
+    parser_factory = ParserFactory()
+    chunker_factory = ChunkerFactory(semantic=True)
+    embedding_provider = EmbeddingProviderFactory().create(
+        provider=str(config_manager.get("rag.embedding_provider", "mock")),
+        config={
+            "model": str(config_manager.get("rag.embedding_model", "nomic-embed-text")),
+            "base_url": str(
+                config_manager.get("rag.ollama_base_url", "http://127.0.0.1:11434")
+            ),
+            "timeout": int(config_manager.get("rag.embedding_timeout", 120)),
+        },
+    )
+    document_ingestion_service = DocumentIngestionService(
+        repository=document_repository,
+        parser_factory=parser_factory,
+        chunker_factory=chunker_factory,
+        embedding_provider=embedding_provider,
+        vector_store=vector_store,
+        storage_dir=str(Path("data/documents").resolve()),
+        default_chunk_size=int(config_manager.get("rag.chunk_size", 18)),
+        default_overlap=int(config_manager.get("rag.chunk_overlap", 4)),
+    )
+    semantic_retriever = SemanticRetriever(
+        embedding_provider=embedding_provider,
+        vector_store=vector_store,
+    )
+    document_retrieval_service = DocumentRetrievalService(retriever=semantic_retriever)
     context_builder = ContextBuilder(
         conversation_store=conversation_store,
         memory_manager=memory_manager,
+        document_retrieval_service=document_retrieval_service,
     )
     prompt_builder = PromptBuilder()
     ollama_client = OllamaClient(model=default_model)
@@ -81,6 +147,13 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     shared_container.register("memory_manager", memory_manager)
     shared_container.register("conversation_store", conversation_store)
     shared_container.register("session_manager", session_manager)
+    shared_container.register("document_repository", document_repository)
+    shared_container.register("vector_store", vector_store)
+    shared_container.register("parser_factory", parser_factory)
+    shared_container.register("chunker_factory", chunker_factory)
+    shared_container.register("embedding_provider", embedding_provider)
+    shared_container.register("document_ingestion_service", document_ingestion_service)
+    shared_container.register("document_retrieval_service", document_retrieval_service)
     shared_container.register("context_builder", context_builder)
     shared_container.register("prompt_builder", prompt_builder)
     shared_container.register("ollama_client", ollama_client)
@@ -124,3 +197,21 @@ def get_memory_manager() -> MemoryManager:
 
 
 MemoryManagerDependency = Annotated[MemoryManager, Depends(get_memory_manager)]
+
+
+def get_document_ingestion_service() -> DocumentIngestionService:
+    """Resolve the shared document ingestion service."""
+    container = get_container()
+    if container.exists("document_ingestion_service"):
+        return container.resolve("document_ingestion_service")
+    register_runtime_dependencies(container)
+    return container.resolve("document_ingestion_service")
+
+
+def get_document_retrieval_service() -> DocumentRetrievalService:
+    """Resolve the shared document retrieval service."""
+    container = get_container()
+    if container.exists("document_retrieval_service"):
+        return container.resolve("document_retrieval_service")
+    register_runtime_dependencies(container)
+    return container.resolve("document_retrieval_service")

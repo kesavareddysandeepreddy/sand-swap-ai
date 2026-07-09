@@ -16,6 +16,7 @@ def runtime_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> TestClient:
     monkeypatch.setenv("MEMORY_DB_PATH", str(tmp_path / "memory-api.db"))
+    monkeypatch.setenv("RAG_DB_PATH", str(tmp_path / "memory-api-rag"))
     with TestClient(app) as client:
         yield client
 

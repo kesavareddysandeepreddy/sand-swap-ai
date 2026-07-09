@@ -82,6 +82,20 @@ Memory management endpoints are available under `/memory`:
 
 See `docs/api/memory-management.md` for details and payload schemas.
 
+## Documents API (Universal Ingestion + RAG)
+
+Universal ingestion and retrieval endpoints are available under `/documents`:
+
+- `POST /documents/upload` - upload, parse, chunk, embed, and index a document
+- `GET /documents` - list all uploaded documents
+- `GET /documents/{document_id}` - fetch one document metadata record
+- `GET /documents/{document_id}/chunks` - inspect indexed chunks for a document
+- `POST /documents/retrieve` - run semantic retrieval with filters for debugging
+- `DELETE /documents/{document_id}` - delete one document and its index entries
+- `DELETE /documents` - delete all documents and indexed chunks
+
+See `docs/api/rag-platform.md` for payloads and architecture notes.
+
 ## Formatting
 
 Format Python source files with:

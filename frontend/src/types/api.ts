@@ -50,3 +50,32 @@ export interface MemoryUpdateRequest {
     value?: string;
     importance?: number;
 }
+
+export interface DocumentRecord {
+    id: string;
+    name: string;
+    original_filename: string;
+    stored_path: string;
+    file_type: string;
+    size_bytes: number;
+    chunk_count: number;
+    embedding_status: string;
+    index_status: string;
+    metadata: Record<string, unknown>;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface RetrievedChunk {
+    chunk_id: string;
+    document_id: string;
+    document_name: string;
+    text: string;
+    score: number;
+    metadata: Record<string, unknown>;
+}
+
+export interface RetrievalResponse {
+    chunks: RetrievedChunk[];
+    citations: string[];
+}

@@ -47,6 +47,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         logger.info("Stopping SandSwap AI runtime")
+        for name in container.list():
+            dependency = container.resolve(name)
+            closer = getattr(dependency, "close", None)
+            if callable(closer):
+                try:
+                    closer()
+                except Exception:  # noqa: BLE001
+                    logger.exception("Failed to close dependency '%s'", name)
         await lifecycle_manager.shutdown()
 
 

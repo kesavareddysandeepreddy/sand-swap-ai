@@ -8,5 +8,13 @@ llm:
 memory:
   vector_db: "qdrant"
 
+rag:
+  embedding_provider: "mock"
+  embedding_model: "nomic-embed-text"
+  ollama_base_url: "http://127.0.0.1:11434"
+  embedding_timeout: 120
+  chunk_size: 18
+  chunk_overlap: 4
+
 logging:
   level: "INFO"

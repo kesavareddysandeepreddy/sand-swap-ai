@@ -63,6 +63,22 @@ export const ConversationSidebar = ({
                 >
                     Memory
                 </NavLink>
+                <NavLink
+                    to="/documents"
+                    className={({ isActive }) =>
+                        `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
+                    }
+                >
+                    Documents
+                </NavLink>
+                <NavLink
+                    to="/inspector"
+                    className={({ isActive }) =>
+                        `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
+                    }
+                >
+                    Inspector
+                </NavLink>
             </nav>
             <button className="new-chat-button" type="button" onClick={onNewConversation}>
                 New Conversation

@@ -5,6 +5,11 @@ pydantic
 pydantic-settings
 python-dotenv
 PyYAML
+python-multipart
+pypdf
+openpyxl
+Pillow
+extract-msg
 
 pytest
 pytest-asyncio

@@ -31,6 +31,7 @@ def test_health_endpoint(
 ) -> None:
     """The health endpoint should return the runtime metadata."""
     monkeypatch.setenv("MEMORY_DB_PATH", str(tmp_path / "health-memory.db"))
+    monkeypatch.setenv("RAG_DB_PATH", str(tmp_path / "health-rag"))
 
     with TestClient(app) as client:
         response = client.get("/health")
@@ -48,6 +49,7 @@ def test_runtime_uses_disk_backed_memory_store(
     """The live runtime should not register an in-memory SQLite store."""
     runtime_db_path = tmp_path / "runtime-memory.db"
     monkeypatch.setenv("MEMORY_DB_PATH", str(runtime_db_path))
+    monkeypatch.setenv("RAG_DB_PATH", str(tmp_path / "runtime-rag"))
 
     with TestClient(app):
         memory_store = app.state.container.resolve("memory_store")
@@ -63,6 +65,7 @@ def test_chat_endpoint(
 ) -> None:
     """The chat endpoint should return the chat-service payload."""
     monkeypatch.setenv("MEMORY_DB_PATH", str(tmp_path / "chat-memory.db"))
+    monkeypatch.setenv("RAG_DB_PATH", str(tmp_path / "chat-rag"))
 
     app.dependency_overrides[get_chat_service] = lambda: FakeChatService()
     try:

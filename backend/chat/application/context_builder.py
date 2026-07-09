@@ -8,6 +8,8 @@ from typing import Any
 from backend.chat.domain.chat_message import ChatMessage
 from backend.chat.infrastructure.conversation_store import ConversationStore
 from backend.memory.core.memory_manager import MemoryManager
+from backend.rag.application.document_service import DocumentRetrievalService
+from backend.rag.domain.models import RetrievedChunk
 
 
 @dataclass(slots=True)
@@ -16,6 +18,8 @@ class PromptContext:
 
     history: list[ChatMessage] = field(default_factory=list)
     memories: list[Any] = field(default_factory=list)
+    documents: list[RetrievedChunk] = field(default_factory=list)
+    document_citations: list[str] = field(default_factory=list)
     current_message: str = ""
     token_budget: int = 2048
     summarization_enabled: bool = False
@@ -28,9 +32,11 @@ class ContextBuilder:
         self,
         conversation_store: ConversationStore | None = None,
         memory_manager: MemoryManager | None = None,
+        document_retrieval_service: DocumentRetrievalService | None = None,
     ) -> None:
         self.conversation_store = conversation_store or ConversationStore()
         self.memory_manager = memory_manager
+        self.document_retrieval_service = document_retrieval_service
 
     def build_context(
         self,
@@ -39,6 +45,7 @@ class ContextBuilder:
         current_message: str,
         max_history_messages: int | None = None,
         max_memories: int = 5,
+        max_documents: int = 5,
     ) -> PromptContext:
         """Assemble recent history, long-term memories, and future budget metadata."""
         conversation = self.conversation_store.get_conversation(conversation_id)
@@ -50,6 +57,8 @@ class ContextBuilder:
         history = conversation.get_recent_messages(max_history_messages)
 
         memories: list[Any] = []
+        documents: list[RetrievedChunk] = []
+        citations: list[str] = []
         if self.memory_manager is not None:
             history_snippet = " ".join(message.content for message in history[-3:])
             relevance_query = f"{current_message} {history_snippet}".strip()
@@ -59,9 +68,18 @@ class ContextBuilder:
                 top_n=max_memories,
             )
 
+            if self.document_retrieval_service is not None:
+                documents = self.document_retrieval_service.retrieve(
+                    query=relevance_query,
+                    top_k=max_documents,
+                )
+                citations = self.document_retrieval_service.format_citations(documents)
+
         return PromptContext(
             history=history,
             memories=memories,
+            documents=documents,
+            document_citations=citations,
             current_message=current_message,
             token_budget=2048,
             summarization_enabled=False,

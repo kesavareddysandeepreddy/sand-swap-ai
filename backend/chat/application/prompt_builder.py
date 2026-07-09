@@ -10,13 +10,33 @@ class PromptBuilder:
     """Build the prompt sent to the language model."""
 
     def build_prompt(self, context: PromptContext) -> str:
-        """Build a prompt that includes history, memories, and the latest message."""
+        """Build a prompt that includes memories, documents, history, and latest message."""
         lines: list[str] = []
 
         if context.memories:
             lines.append("Relevant memories:")
             for memory in context.memories:
                 lines.append(f"- {memory.key}: {memory.value}")
+            lines.append("")
+
+        documents = getattr(context, "documents", [])
+        citations = getattr(context, "document_citations", [])
+
+        if documents:
+            lines.append("Relevant retrieved documents:")
+            for chunk in documents:
+                section = chunk.metadata.get("section", "-")
+                page = chunk.metadata.get("page", "-")
+                lines.append(
+                    f"- [{chunk.document_name}] (chunk={chunk.chunk_id}, page={page}, section={section})"
+                )
+                lines.append(chunk.text)
+            lines.append("")
+
+        if citations:
+            lines.append("Citations:")
+            for citation in citations:
+                lines.append(f"- {citation}")
             lines.append("")
 
         if context.history:

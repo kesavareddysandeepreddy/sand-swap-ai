@@ -2,7 +2,9 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppLayout } from "./components/layout/AppLayout";
 import { ChatPage } from "./pages/ChatPage";
+import { DocumentsPage } from "./pages/DocumentsPage";
 import { MemoryPage } from "./pages/MemoryPage";
+import { RetrievalInspectorPage } from "./pages/RetrievalInspectorPage";
 import { useChat } from "./state/useChat";
 import { useHealth } from "./state/useHealth";
 
@@ -52,6 +54,8 @@ const App = () => {
                     }
                 />
                 <Route path="memory" element={<MemoryPage />} />
+                <Route path="documents" element={<DocumentsPage />} />
+                <Route path="inspector" element={<RetrievalInspectorPage />} />
             </Route>
         </Routes>
     );
