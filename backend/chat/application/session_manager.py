@@ -18,6 +18,8 @@ class SessionManager:
     @staticmethod
     def _scope_conversation_id(user_id: str, conversation_id: str | None) -> str:
         """Create a user-scoped conversation identifier."""
+        if conversation_id is not None and conversation_id.startswith(f"{user_id}:"):
+            return conversation_id
         return (
             f"{user_id}:{conversation_id}"
             if conversation_id is not None

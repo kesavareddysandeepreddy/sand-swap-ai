@@ -17,7 +17,12 @@ export const ChatPage = ({
 }: ChatPageProps) => {
     return (
         <div className="chat-page">
-            {error ? <p className="error-banner">{error}</p> : null}
+            {error ? (
+                <p className="error-banner" role="alert">
+                    <span className="error-icon" aria-hidden="true">!</span>
+                    {error}
+                </p>
+            ) : null}
             <ChatWindow messages={messages} isSending={isSending} />
             <MessageComposer isSending={isSending} onSendMessage={onSendMessage} />
         </div>

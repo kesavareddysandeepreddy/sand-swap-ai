@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends
@@ -24,6 +26,12 @@ from backend.memory.stores.sqlite.sqlite_store import SQLiteMemoryStore
 logger = LoggerFactory.get_logger("RuntimeDependencies")
 
 
+def _get_memory_db_path() -> str:
+    """Return the configured on-disk memory database path."""
+    raw_path = os.getenv("MEMORY_DB_PATH", "data/memory/memory.db")
+    return str(Path(raw_path).resolve())
+
+
 def get_container() -> Container:
     """Return the shared application container."""
     return Container()
@@ -37,7 +45,9 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     config_manager = ConfigManager()
     default_model = str(config_manager.get("llm.default_model", "llama3"))
 
-    memory_store = SQLiteMemoryStore(db_path=":memory:")
+    memory_db_path = _get_memory_db_path()
+    logger.info("Runtime memory SQLite path: %s", memory_db_path)
+    memory_store = SQLiteMemoryStore(db_path=memory_db_path)
     memory_manager = MemoryManager(store=memory_store)
     conversation_store = ConversationStore(db_path=":memory:")
     session_manager = SessionManager(conversation_store=conversation_store)
@@ -56,8 +66,14 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         memory_manager=memory_manager,
         memory_extractor=memory_extractor,
     )
-
-    logger.info("Registering runtime dependencies")
+    logger.info(
+        "MemoryManager identity runtime=%s chat_service=%s extractor=%s same_chat=%s same_extractor=%s",
+        id(memory_manager),
+        id(chat_service.memory_manager),
+        id(memory_extractor.memory),
+        memory_manager is chat_service.memory_manager,
+        memory_manager is memory_extractor.memory,
+    )
 
     shared_container.register("settings", settings)
     shared_container.register("config_manager", config_manager)
@@ -74,8 +90,6 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     registry.register("chat_service", chat_service)
     registry.register("memory_manager", memory_manager)
     registry.register("ollama_client", ollama_client)
-
-    logger.info("Runtime dependencies registered")
     return shared_container
 
 

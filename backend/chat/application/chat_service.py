@@ -92,6 +92,7 @@ class ChatService(BaseService):
             "message_id": assistant_message.id,
         }
 
+        self.logger.info("Starting memory extraction")
         asyncio.create_task(self._extract_memories_after_response(user_id, message))
         return response_payload
 
@@ -115,7 +116,15 @@ class ChatService(BaseService):
     ) -> None:
         """Extract long-term memories after the response is returned."""
         try:
-            await asyncio.to_thread(self.memory_extractor.process, user_id, message)
+            extracted = await asyncio.to_thread(
+                self.memory_extractor.process,
+                user_id,
+                message,
+            )
+            self.logger.info(
+                "Memory extraction task completed with %d memories",
+                len(extracted),
+            )
         except (requests.RequestException, RuntimeError, ValueError) as exc:
             self.logger.exception("Memory extraction failed: %s", exc)
 

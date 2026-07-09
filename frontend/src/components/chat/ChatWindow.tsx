@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 import type { ChatMessage } from "../../types/chat";
 import { formatTimestamp } from "../../utils/date";
 
@@ -7,10 +9,19 @@ interface ChatWindowProps {
 }
 
 export const ChatWindow = ({ messages, isSending }: ChatWindowProps) => {
+    const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        bottomAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }, [messages, isSending]);
+
     if (!messages.length) {
         return (
             <section className="chat-window chat-window--empty">
-                <p>Start a conversation to see responses from SandSwap AI.</p>
+                <div className="empty-state">
+                    <h2>Welcome to SandSwap AI</h2>
+                    <p>Ask anything to begin your conversation.</p>
+                </div>
             </section>
         );
     }
@@ -29,7 +40,15 @@ export const ChatWindow = ({ messages, isSending }: ChatWindowProps) => {
                     <p>{message.content}</p>
                 </article>
             ))}
-            {isSending ? <p className="sending-indicator">Assistant is thinking...</p> : null}
+            {isSending ? (
+                <p className="sending-indicator">
+                    <span className="typing-dot" />
+                    <span className="typing-dot" />
+                    <span className="typing-dot" />
+                    Assistant is typing...
+                </p>
+            ) : null}
+            <div ref={bottomAnchorRef} aria-hidden="true" />
         </section>
     );
 };

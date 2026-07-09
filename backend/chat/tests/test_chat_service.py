@@ -149,3 +149,72 @@ async def test_chat_service_returns_response_and_extracts_memories_afterward(
 
     memory_store.close()
     conversation_store.close()
+
+
+@pytest.mark.asyncio
+async def test_chat_service_injects_history_and_memory_into_prompt(
+    temp_workspace: str,
+) -> None:
+    conversation_store = ConversationStore(
+        db_path=str(Path(temp_workspace) / "conversations.db")
+    )
+    memory_store = SQLiteMemoryStore(db_path=str(Path(temp_workspace) / "memories.db"))
+    memory_manager = MemoryManager(store=memory_store)
+    session_manager = SessionManager(conversation_store=conversation_store)
+    context_builder = ContextBuilder(
+        conversation_store=conversation_store,
+        memory_manager=memory_manager,
+    )
+    prompt_builder = PromptBuilder()
+    ollama_client = OllamaClient(model="test-model")
+
+    memory_manager.remember("user-1", "profile", "name", "Sandeep")
+
+    prompts: list[str] = []
+
+    def fake_generate(*, prompt: str, **_: object) -> str:
+        prompts.append(prompt)
+        return "Your name is Sandeep."
+
+    class NoopExtractor:
+        def process(self, user_id: str, message: str) -> list[object]:
+            return []
+
+    try:
+        with patch.object(ollama_client, "generate", side_effect=fake_generate):
+            chat_service = ChatService(
+                session_manager=session_manager,
+                context_builder=context_builder,
+                prompt_builder=prompt_builder,
+                ollama_client=ollama_client,
+                memory_manager=memory_manager,
+                memory_extractor=NoopExtractor(),
+            )
+
+            first = await chat_service.send_message("user-1", "My name is Sandeep.")
+            persisted_after_first = conversation_store.get_conversation(
+                first["conversation_id"]
+            )
+            assert persisted_after_first is not None
+            assert len(persisted_after_first.messages) == 2
+
+            second = await chat_service.send_message(
+                "user-1",
+                "What is my name?",
+                conversation_id=first["conversation_id"],
+            )
+
+        assert first["conversation_id"].startswith("user-1:")
+        assert second["conversation_id"] == first["conversation_id"]
+        assert second["response"] == "Your name is Sandeep."
+        assert len(prompts) == 2
+        assert "Recent conversation:" in prompts[1]
+        assert "user: My name is Sandeep." in prompts[1]
+        assert "Relevant memories:" in prompts[1]
+        assert "name: Sandeep" in prompts[1]
+        assert prompts[1].index("Relevant memories:") < prompts[1].index(
+            "Recent conversation:"
+        )
+    finally:
+        memory_store.close()
+        conversation_store.close()

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.api.dependencies import get_chat_service
@@ -22,8 +25,13 @@ class FakeChatService:
         }
 
 
-def test_health_endpoint() -> None:
+def test_health_endpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The health endpoint should return the runtime metadata."""
+    monkeypatch.setenv("MEMORY_DB_PATH", str(tmp_path / "health-memory.db"))
+
     with TestClient(app) as client:
         response = client.get("/health")
 
@@ -33,8 +41,29 @@ def test_health_endpoint() -> None:
     assert response.json()["version"] == "0.1.0"
 
 
-def test_chat_endpoint() -> None:
+def test_runtime_uses_disk_backed_memory_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The live runtime should not register an in-memory SQLite store."""
+    runtime_db_path = tmp_path / "runtime-memory.db"
+    monkeypatch.setenv("MEMORY_DB_PATH", str(runtime_db_path))
+
+    with TestClient(app):
+        memory_store = app.state.container.resolve("memory_store")
+
+    assert getattr(memory_store, "db_path", "") != ":memory:"
+    assert Path(memory_store.db_path).is_absolute()
+    assert memory_store.db_path == str(runtime_db_path.resolve())
+
+
+def test_chat_endpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The chat endpoint should return the chat-service payload."""
+    monkeypatch.setenv("MEMORY_DB_PATH", str(tmp_path / "chat-memory.db"))
+
     app.dependency_overrides[get_chat_service] = lambda: FakeChatService()
     try:
         with TestClient(app) as client:

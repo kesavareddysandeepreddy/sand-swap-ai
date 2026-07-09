@@ -13,6 +13,8 @@ interface AppLayoutProps {
     activeConversationId: string | null;
     onSelectConversation: (id: string) => void;
     onNewConversation: () => void;
+    onRenameConversation: (id: string, nextTitle: string) => void;
+    onDeleteConversation: (id: string) => void;
 }
 
 export const AppLayout = ({
@@ -23,6 +25,8 @@ export const AppLayout = ({
     activeConversationId,
     onSelectConversation,
     onNewConversation,
+    onRenameConversation,
+    onDeleteConversation,
 }: AppLayoutProps) => {
     return (
         <div className="app-shell">
@@ -33,6 +37,8 @@ export const AppLayout = ({
                     activeConversationId={activeConversationId}
                     onSelectConversation={onSelectConversation}
                     onNewConversation={onNewConversation}
+                    onRenameConversation={onRenameConversation}
+                    onDeleteConversation={onDeleteConversation}
                 />
                 <main className="main-content">
                     <Outlet />

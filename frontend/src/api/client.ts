@@ -17,8 +17,10 @@ export class ApiError extends Error {
 export class ApiClient {
     private readonly baseUrl: string;
 
-    constructor(baseUrl = import.meta.env.VITE_API_BASE_URL ?? "") {
-        this.baseUrl = baseUrl.replace(/\/$/, "");
+    constructor(
+        baseUrl = import.meta.env.VITE_API_BASE_URL ?? "",
+    ) {
+        this.baseUrl = baseUrl.trim().replace(/\/$/, "");
     }
 
     async getHealth(): Promise<HealthResponse> {
@@ -38,10 +40,11 @@ export class ApiClient {
     }
 
     private async request<T>(path: string, init: RequestInit): Promise<T> {
+        const endpoint = this.buildEndpoint(path);
         let response: Response;
 
         try {
-            response = await fetch(`${this.baseUrl}${path}`, init);
+            response = await fetch(endpoint, init);
         } catch {
             throw new ApiError("Unable to connect to the SandSwap API.", 0);
         }
@@ -60,6 +63,18 @@ export class ApiClient {
         }
 
         return (await response.json()) as T;
+    }
+
+    private buildEndpoint(path: string): string {
+        if (!this.baseUrl) {
+            throw new ApiError("VITE_API_BASE_URL is not configured.", 0);
+        }
+
+        if (!/^https?:\/\//i.test(this.baseUrl)) {
+            throw new ApiError("VITE_API_BASE_URL must be an absolute URL.", 0);
+        }
+
+        return `${this.baseUrl}${path}`;
     }
 }
 

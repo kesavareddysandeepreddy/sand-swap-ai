@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -38,7 +37,7 @@ class ContextBuilder:
         user_id: str,
         conversation_id: str,
         current_message: str,
-        max_history_messages: int = 8,
+        max_history_messages: int | None = None,
         max_memories: int = 5,
     ) -> PromptContext:
         """Assemble recent history, long-term memories, and future budget metadata."""
@@ -52,24 +51,13 @@ class ContextBuilder:
 
         memories: list[Any] = []
         if self.memory_manager is not None:
-            search_terms: list[str] = []
-            for term in [current_message, *[message.content for message in history]]:
-                if not term:
-                    continue
-                tokens = re.findall(r"[A-Za-z0-9]+", term.lower())
-                search_terms.extend(token for token in tokens if len(token) > 2)
-
-            seen: set[str] = set()
-            for term in search_terms:
-                if not term or term in seen:
-                    continue
-                seen.add(term)
-                matches = self.memory_manager.search(user_id, term)
-                if matches:
-                    memories.extend(matches)
-                    if len(memories) >= max_memories:
-                        break
-            memories = memories[:max_memories]
+            history_snippet = " ".join(message.content for message in history[-3:])
+            relevance_query = f"{current_message} {history_snippet}".strip()
+            memories = self.memory_manager.retrieve_relevant(
+                user_id,
+                relevance_query,
+                top_n=max_memories,
+            )
 
         return PromptContext(
             history=history,
@@ -80,7 +68,9 @@ class ContextBuilder:
         )
 
     def build_history_context(
-        self, conversation_id: str, max_history_messages: int = 8
+        self,
+        conversation_id: str,
+        max_history_messages: int | None = None,
     ) -> list[ChatMessage]:
         """Return recent conversation history for a conversation."""
         conversation = self.conversation_store.get_conversation(conversation_id)
@@ -94,4 +84,8 @@ class ContextBuilder:
         """Return relevant long-term memories for the current request."""
         if self.memory_manager is None:
             return []
-        return self.memory_manager.search(user_id, current_message)[:max_memories]
+        return self.memory_manager.retrieve_relevant(
+            user_id,
+            current_message,
+            top_n=max_memories,
+        )
