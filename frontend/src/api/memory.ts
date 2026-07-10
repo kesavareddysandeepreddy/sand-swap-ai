@@ -10,8 +10,14 @@ const getBaseUrl = (): string => {
     if (!raw) {
         throw new ApiError("VITE_API_BASE_URL is not configured.", 0);
     }
-    if (!/^https?:\/\//i.test(raw)) {
-        throw new ApiError("VITE_API_BASE_URL must be an absolute URL.", 0);
+    const isAbsolute = /^https?:\/\//i.test(raw);
+    const isRelative = raw.startsWith("/");
+
+    if (!isAbsolute && !isRelative) {
+        throw new ApiError(
+            "VITE_API_BASE_URL must be an absolute URL or '/api'.",
+            0,
+        );
     }
     return raw;
 };

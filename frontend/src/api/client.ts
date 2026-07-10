@@ -70,8 +70,14 @@ export class ApiClient {
             throw new ApiError("VITE_API_BASE_URL is not configured.", 0);
         }
 
-        if (!/^https?:\/\//i.test(this.baseUrl)) {
-            throw new ApiError("VITE_API_BASE_URL must be an absolute URL.", 0);
+        const isAbsolute = /^https?:\/\//i.test(this.baseUrl);
+        const isRelative = this.baseUrl.startsWith("/");
+
+        if (!isAbsolute && !isRelative) {
+            throw new ApiError(
+                "VITE_API_BASE_URL must be an absolute URL or '/api'.",
+                0,
+            );
         }
 
         return `${this.baseUrl}${path}`;

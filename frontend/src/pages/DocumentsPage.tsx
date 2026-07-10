@@ -14,6 +14,43 @@ const formatBytes = (value: number): string => {
     return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const getIconForType = (fileType: string): string => {
+    if (["pdf"].includes(fileType)) {
+        return "[PDF]";
+    }
+    if (["doc", "docx", "odt", "rtf"].includes(fileType)) {
+        return "[DOC]";
+    }
+    if (["xls", "xlsx", "ods", "csv", "tsv"].includes(fileType)) {
+        return "[SHEET]";
+    }
+    if (["ppt", "pptx", "odp"].includes(fileType)) {
+        return "[SLIDE]";
+    }
+    if (["png", "jpg", "jpeg", "gif", "webp", "tif", "tiff", "bmp", "svg"].includes(fileType)) {
+        return "[IMG]";
+    }
+    if (["zip"].includes(fileType)) {
+        return "[ZIP]";
+    }
+    if (["py", "js", "ts", "tsx", "jsx", "java", "go", "rs"].includes(fileType)) {
+        return "[CODE]";
+    }
+    return "[FILE]";
+};
+
+const getNumberMeta = (metadata: Record<string, unknown>, key: string): number => {
+    const value = metadata[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+    }
+    if (typeof value === "string") {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+};
+
 export const DocumentsPage = () => {
     const {
         documents,
@@ -164,9 +201,15 @@ export const DocumentsPage = () => {
                                 <tr>
                                     <th>Name</th>
                                     <th>Type</th>
+                                    <th>Parser</th>
                                     <th>Category</th>
                                     <th>Size</th>
+                                    <th>Pages</th>
+                                    <th>Tables</th>
+                                    <th>Images</th>
                                     <th>Chunks</th>
+                                    <th>Processing</th>
+                                    <th>Status</th>
                                     <th>Embedding</th>
                                     <th>Index</th>
                                     <th>Updated</th>
@@ -176,11 +219,22 @@ export const DocumentsPage = () => {
                             <tbody>
                                 {filtered.map((document) => (
                                     <tr key={document.id}>
-                                        <td>{document.name}</td>
+                                        <td>{getIconForType(document.file_type)} {document.name}</td>
                                         <td>{document.file_type}</td>
+                                        <td>{String(document.metadata.parser ?? "-")}</td>
                                         <td>{String(document.metadata.category ?? "-")}</td>
                                         <td>{formatBytes(document.size_bytes)}</td>
+                                        <td>{getNumberMeta(document.metadata, "pages") || "-"}</td>
+                                        <td>{getNumberMeta(document.metadata, "tables") || "-"}</td>
+                                        <td>{getNumberMeta(document.metadata, "images") || "-"}</td>
                                         <td>{document.chunk_count}</td>
+                                        <td>
+                                            {(() => {
+                                                const ms = getNumberMeta(document.metadata, "processing_time_ms");
+                                                return ms > 0 ? `${(ms / 1000).toFixed(2)}s` : "-";
+                                            })()}
+                                        </td>
+                                        <td>{String(document.metadata.processing_status ?? "-")}</td>
                                         <td>{document.embedding_status}</td>
                                         <td>{document.index_status}</td>
                                         <td>{formatTimestamp(document.updated_at)}</td>

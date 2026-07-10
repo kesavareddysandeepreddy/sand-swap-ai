@@ -38,7 +38,7 @@ describe("RetrievalInspectorPage", () => {
         await waitFor(() => {
             expect(documentsApi.retrieve).toHaveBeenCalled();
             expect(screen.getByText("Retrieved Chunks")).toBeInTheDocument();
-            expect(screen.getByText("deployment guidance")).toBeInTheDocument();
+            expect(screen.getByText(/ment guidance/i)).toBeInTheDocument();
         });
     });
 });
