@@ -15,3 +15,7 @@
 - Added React Documents and Retrieval Inspector pages with upload, filter, list, viewer, and retrieval-debug UX.
 - Added backend RAG tests for parser/chunker routing, upload/index/retrieve APIs, and vector retrieval behavior.
 - Added frontend test scaffolding (Vitest + Testing Library) with page tests for Documents and Retrieval Inspector.
+- Expanded universal parser coverage for enterprise formats including HTML, ZIP archives (recursive), logs, config variants, batch scripts, and additional image extensions.
+- Added pluggable OCR provider abstraction for image parsing with configurable provider selection.
+- Enriched ingestion metadata with parser name, source type, pages/tables/images counts, section/paragraph counts, checksum/file-size diagnostics, and processing time/status.
+- Enhanced Retrieval Inspector and Documents UI to surface parser diagnostics, score breakdowns, match reasons, highlighted query terms, and source metadata drilldown.

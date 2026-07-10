@@ -94,6 +94,13 @@ Universal ingestion and retrieval endpoints are available under `/documents`:
 - `DELETE /documents/{document_id}` - delete one document and its index entries
 - `DELETE /documents` - delete all documents and indexed chunks
 
+Current parser coverage includes office documents, spreadsheets, presentations, markdown/text/logs,
+JSON/XML/YAML/TOML/INI/config, source code and scripts, email files, HTML pages, images (with OCR hooks),
+engineering specs, and recursive ZIP archive ingestion.
+
+The ingestion metadata now exposes parser and processing diagnostics via each document's `metadata`
+payload (for example: `parser`, `pages`, `tables`, `images`, `processing_time_ms`, and `processing_status`).
+
 See `docs/api/rag-platform.md` for payloads and architecture notes.
 
 ## Formatting

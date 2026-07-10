@@ -32,6 +32,11 @@ class ParsedDocument:
 
     text: str
     language: str | None = None
+    parser: str = "unknown"
+    sections: list[dict[str, Any]] = field(default_factory=list)
+    paragraphs: list[str] = field(default_factory=list)
+    tables: list[dict[str, Any]] = field(default_factory=list)
+    images: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

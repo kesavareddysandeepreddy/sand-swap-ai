@@ -9,6 +9,8 @@ python-multipart
 pypdf
 openpyxl
 Pillow
+pytesseract
+beautifulsoup4
 extract-msg
 
 pytest

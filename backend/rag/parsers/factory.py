@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from backend.rag.domain.interfaces import DocumentParser
 from backend.rag.parsers.file_types import detect_file_spec
+from backend.rag.parsers.ocr import OCRProviderFactory
 from backend.rag.parsers.parser_impl import (
     CodeParser,
     ConfigParser,
@@ -11,6 +12,7 @@ from backend.rag.parsers.parser_impl import (
     EmailParser,
     EngineeringParser,
     ExcelParser,
+    HtmlParser,
     ImageParser,
     JsonParser,
     MarkdownParser,
@@ -20,13 +22,15 @@ from backend.rag.parsers.parser_impl import (
     WordParser,
     XmlParser,
     YamlParser,
+    ZipParser,
 )
 
 
 class ParserFactory:
     """Resolve parser implementation from filename metadata."""
 
-    def __init__(self) -> None:
+    def __init__(self, ocr_provider: str = "tesseract") -> None:
+        ocr = OCRProviderFactory().create(ocr_provider)
         self._parsers: dict[str, DocumentParser] = {
             "pdf": PDFParser(),
             "word": WordParser(),
@@ -39,11 +43,13 @@ class ParserFactory:
             "xml": XmlParser(),
             "yaml": YamlParser(),
             "code": CodeParser(),
-            "image": ImageParser(),
+            "image": ImageParser(ocr_provider=ocr),
             "email": EmailParser(),
             "engineering": EngineeringParser(),
             "config": ConfigParser(),
+            "html": HtmlParser(),
         }
+        self._parsers["zip"] = ZipParser(parser_resolver=self.resolve)
 
     def resolve(self, file_name: str) -> DocumentParser:
         """Return parser based on filename and extension registry."""

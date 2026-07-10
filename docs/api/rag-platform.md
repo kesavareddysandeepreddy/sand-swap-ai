@@ -25,6 +25,9 @@ The backend implementation lives in `backend/rag/` and follows clean boundaries:
 6. Chunk vectors are indexed in SQLite vector store
 7. Document metadata and status are updated in SQLite repository
 
+The parser registry is extension-driven through `ParserFactory` + `file_types` and now includes
+recursive ZIP archive parsing and pluggable OCR-backed image extraction.
+
 ## Endpoints
 
 ### POST /documents/upload
@@ -38,6 +41,13 @@ Multipart form fields:
 - `overlap` (optional)
 
 Returns indexed document metadata including `chunk_count`, `embedding_status`, and `index_status`.
+
+The `metadata` object includes parser diagnostics and processing telemetry, such as:
+
+- `parser`, `source_type`, `language`
+- `pages`, `tables`, `images`, `section_count`, `paragraph_count`
+- `checksum_sha256`, `file_size_bytes`
+- `processing_time_ms`, `processing_status`, optional `processing_error`
 
 ### GET /documents
 
@@ -69,6 +79,9 @@ Response:
 
 - `chunks`: retrieved chunk payloads with similarity score and metadata
 - `citations`: source lines formatted as `Document | page | section | chunk`
+
+Each retrieved chunk metadata can include score breakdown fields (`semantic_score`,
+`keyword_score`, `combined_score`) for retrieval inspection UX.
 
 ### DELETE /documents/{document_id}
 

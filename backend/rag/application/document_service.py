@@ -6,6 +6,7 @@ import hashlib
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from fastapi import UploadFile
@@ -48,6 +49,13 @@ class DocumentIngestionService:
         self.default_overlap = default_overlap
         self.logger = LoggerFactory.get_logger("DocumentIngestionService")
 
+    @staticmethod
+    def _to_int(value: Any, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
     async def upload_document(
         self,
         upload: UploadFile,
@@ -58,6 +66,7 @@ class DocumentIngestionService:
         overlap: int | None = None,
     ) -> DocumentRecord:
         """Store uploaded document and index chunks."""
+        started_at = perf_counter()
         payload = await upload.read()
         if not payload:
             raise ValueError("Uploaded file is empty")
@@ -88,6 +97,11 @@ class DocumentIngestionService:
                 "created": now.isoformat(),
                 "modified": now.isoformat(),
                 "category": spec.category,
+                "parser": spec.parser,
+                "source_type": spec.category,
+                "checksum_sha256": digest,
+                "file_size_bytes": len(payload),
+                "processing_status": "processing",
             },
         )
         self.repository.save(document)
@@ -99,6 +113,22 @@ class DocumentIngestionService:
             if parsed.language:
                 document.metadata["language"] = parsed.language
             document.metadata.update(parsed.metadata)
+            document.metadata["parser"] = parsed.parser or spec.parser
+
+            page_count = self._to_int(document.metadata.get("page_count"))
+            slide_count = self._to_int(document.metadata.get("slide_count"))
+            worksheet_count = len(document.metadata.get("worksheets", []))
+            document.metadata["pages"] = max(page_count, slide_count, worksheet_count)
+            table_count = self._to_int(document.metadata.get("table_count"))
+            if table_count == 0:
+                table_count = self._to_int(document.metadata.get("table_hints"))
+            image_count = self._to_int(document.metadata.get("image_count"))
+            if image_count == 0 and parsed.images:
+                image_count = len(parsed.images)
+            document.metadata["tables"] = table_count
+            document.metadata["images"] = image_count
+            document.metadata["section_count"] = len(parsed.sections)
+            document.metadata["paragraph_count"] = len(parsed.paragraphs)
 
             chunker = self.chunker_factory.resolve(safe_name)
             chunks = chunker.chunk(
@@ -113,14 +143,22 @@ class DocumentIngestionService:
             self.vector_store.upsert_chunks(chunks, vectors)
 
             document.chunk_count = len(chunks)
+            document.metadata["chunks"] = len(chunks)
             document.embedding_status = "completed"
             document.index_status = "indexed"
+            elapsed_ms = int((perf_counter() - started_at) * 1000)
+            document.metadata["processing_time_ms"] = elapsed_ms
+            document.metadata["processing_status"] = "completed"
             document.updated_at = datetime.now(UTC)
             self.repository.update(document)
             return document
         except Exception as exc:  # noqa: BLE001
             document.embedding_status = "failed"
             document.index_status = "failed"
+            elapsed_ms = int((perf_counter() - started_at) * 1000)
+            document.metadata["processing_time_ms"] = elapsed_ms
+            document.metadata["processing_status"] = "failed"
+            document.metadata["processing_error"] = str(exc)
             document.updated_at = datetime.now(UTC)
             self.repository.update(document)
             self.logger.exception("Failed to index document %s: %s", document.id, exc)
@@ -183,11 +221,19 @@ class DocumentRetrievalService:
         if category:
             filters["category"] = category
 
-        return self.retriever.retrieve(
+        chunks = self.retriever.retrieve(
             query=query,
             top_k=top_k,
             metadata_filter=filters or None,
         )
+        for chunk in chunks:
+            if "semantic_score" not in chunk.metadata:
+                chunk.metadata["semantic_score"] = chunk.score
+            if "keyword_score" not in chunk.metadata:
+                chunk.metadata["keyword_score"] = 0.0
+            if "combined_score" not in chunk.metadata:
+                chunk.metadata["combined_score"] = chunk.score
+        return chunks
 
     def format_citations(self, chunks: list[RetrievedChunk]) -> list[str]:
         citations: list[str] = []

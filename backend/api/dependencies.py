@@ -89,7 +89,9 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     session_manager = SessionManager(conversation_store=conversation_store)
     document_repository = SQLiteDocumentRepository(db_path=rag_document_db_path)
     vector_store = SQLiteVectorStore(db_path=rag_vector_db_path)
-    parser_factory = ParserFactory()
+    parser_factory = ParserFactory(
+        ocr_provider=str(config_manager.get("rag.ocr_provider", "tesseract"))
+    )
     chunker_factory = ChunkerFactory(semantic=True)
     embedding_provider = EmbeddingProviderFactory().create(
         provider=str(config_manager.get("rag.embedding_provider", "mock")),
