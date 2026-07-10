@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from backend.auth.password_hasher import PasswordHasher
+from backend.auth.token_service import TokenService
 from backend.domain.entities.user import User
 from backend.services.user_service import UserService
 
@@ -15,6 +17,7 @@ class AuthService:
 
     user_service: UserService
     password_hasher: PasswordHasher
+    token_service: TokenService = field(default_factory=TokenService)
     _password_hashes: dict[str, str] = field(default_factory=dict)
 
     def register_user(
@@ -57,3 +60,15 @@ class AuthService:
     def get_user(self, user_id: str) -> User | None:
         """Fetch a user by identifier."""
         return self.user_service.get_user(user_id)
+
+    def issue_token(self, user: User, expires_minutes: int = 60) -> str:
+        """Issue a signed access token for an authenticated user."""
+        return self.token_service.create_access_token(
+            user_id=user.id,
+            email=user.email,
+            expires_minutes=expires_minutes,
+        )
+
+    def validate_token(self, token: str) -> dict[str, Any]:
+        """Validate a JWT access token and return claims."""
+        return self.token_service.verify_access_token(token)
