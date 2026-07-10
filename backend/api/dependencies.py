@@ -7,7 +7,13 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from backend.auth import (
+    CurrentUser,
+    TokenError,
+    TokenService,
+)
 from backend.chat.application.chat_service import ChatService
 from backend.chat.application.context_builder import ContextBuilder
 from backend.chat.application.prompt_builder import PromptBuilder
@@ -36,6 +42,7 @@ from backend.rag.retrievers.semantic_retriever import SemanticRetriever
 from backend.rag.vectorstores.sqlite_vector_store import SQLiteVectorStore
 
 logger = LoggerFactory.get_logger("RuntimeDependencies")
+http_bearer = HTTPBearer(auto_error=False)
 
 
 def _get_memory_db_path() -> str:
@@ -69,12 +76,61 @@ def get_container() -> Container:
     return Container()
 
 
+def get_token_service() -> TokenService:
+    """Resolve the shared JWT token service."""
+    container = get_container()
+    if container.exists("token_service"):
+        return container.resolve("token_service")
+
+    token_service = TokenService()
+    container.register("token_service", token_service)
+    return token_service
+
+
+def _resolve_bearer_token(
+    credentials: HTTPAuthorizationCredentials | None,
+) -> str | None:
+    """Extract a bearer token from optional auth credentials."""
+    if credentials is None:
+        return None
+    if credentials.scheme.lower() != "bearer":
+        return None
+    token = credentials.credentials.strip()
+    return token or None
+
+
+def get_current_user(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Depends(http_bearer),
+    ],
+    token_service: Annotated[TokenService, Depends(get_token_service)],
+) -> CurrentUser:
+    """Resolve the current request user from a JWT bearer token.
+
+    Invalid or missing credentials fall back to an anonymous context to preserve
+    current API compatibility.
+    """
+    token = _resolve_bearer_token(credentials)
+    if token is None:
+        return CurrentUser.anonymous()
+
+    try:
+        claims = token_service.verify_access_token(token)
+    except TokenError as exc:
+        logger.info("Falling back to anonymous request context: %s", exc)
+        return CurrentUser.anonymous(auth_error=str(exc))
+
+    return CurrentUser.authenticated(claims)
+
+
 def register_runtime_dependencies(container: Container | None = None) -> Container:
     """Register the runtime services used by the API layer."""
     shared_container = container or get_container()
 
     settings = Settings()
     config_manager = ConfigManager()
+    token_service = TokenService()
     default_model = str(config_manager.get("llm.default_model", "llama3"))
 
     memory_db_path = _get_memory_db_path()
@@ -145,6 +201,7 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
 
     shared_container.register("settings", settings)
     shared_container.register("config_manager", config_manager)
+    shared_container.register("token_service", token_service)
     shared_container.register("memory_store", memory_store)
     shared_container.register("memory_manager", memory_manager)
     shared_container.register("conversation_store", conversation_store)
@@ -175,6 +232,10 @@ def get_settings() -> Settings:
         return container.resolve("settings")
     register_runtime_dependencies(container)
     return container.resolve("settings")
+
+
+CurrentUserDependency = Annotated[CurrentUser, Depends(get_current_user)]
+AuthenticatedUserDependency = CurrentUserDependency
 
 
 def get_chat_service() -> ChatService:
