@@ -8,6 +8,14 @@ from backend.domain.repositories.ownership_repositories import (
     ProjectRepository,
     UserRepository,
 )
+from backend.domain.repositories.sqlite_repositories import (
+    SQLiteAgentOwnerRepository,
+    SQLiteConversationOwnerRepository,
+    SQLiteDocumentOwnerRepository,
+    SQLiteMemoryOwnerRepository,
+    SQLiteProjectRepository,
+    SQLiteUserRepository,
+)
 
 __all__ = [
     "AgentOwnerRepository",
@@ -16,4 +24,10 @@ __all__ = [
     "MemoryOwnerRepository",
     "ProjectRepository",
     "UserRepository",
+    "SQLiteAgentOwnerRepository",
+    "SQLiteConversationOwnerRepository",
+    "SQLiteDocumentOwnerRepository",
+    "SQLiteMemoryOwnerRepository",
+    "SQLiteProjectRepository",
+    "SQLiteUserRepository",
 ]
