@@ -23,6 +23,7 @@ from backend.rag.domain.models import DocumentRecord, RetrievedChunk
 from backend.rag.parsers.factory import ParserFactory
 from backend.rag.parsers.file_types import detect_file_spec
 from backend.services import ANONYMOUS_USER_ID, normalize_user_id
+from backend.services.ownership_service import OwnershipService
 
 
 class DocumentIngestionService:
@@ -36,6 +37,7 @@ class DocumentIngestionService:
         embedding_provider: EmbeddingProvider,
         vector_store: VectorStore,
         storage_dir: str,
+        ownership_service: OwnershipService | None = None,
         default_chunk_size: int = 18,
         default_overlap: int = 4,
     ) -> None:
@@ -46,6 +48,7 @@ class DocumentIngestionService:
         self.vector_store = vector_store
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self.ownership_service = ownership_service
         self.default_chunk_size = default_chunk_size
         self.default_overlap = default_overlap
         self.logger = LoggerFactory.get_logger("DocumentIngestionService")
@@ -67,6 +70,95 @@ class DocumentIngestionService:
         """Return the normalized owner stored on a document."""
         owner_id = document.metadata.get("owner_id")
         return cls._resolve_owner_id(owner_id if isinstance(owner_id, str) else None)
+
+    def _resolve_default_project_for_owner(self, owner_id: str) -> str:
+        """Resolve the owner default project id with a legacy-safe fallback."""
+        if self.ownership_service is None:
+            return "default"
+
+        try:
+            projects = self.ownership_service.list_projects_for_user(owner_id)
+            if projects:
+                default_project = next(
+                    (
+                        project
+                        for project in projects
+                        if project.name.strip().lower()
+                        in {"default", "default workspace"}
+                    ),
+                    None,
+                )
+                return (default_project or projects[0]).id
+        except Exception:  # noqa: BLE001
+            return "default"
+        return "default"
+
+    def _resolve_project_id(self, owner_id: str, project_id: str | None) -> str:
+        """Return an explicit project id or fallback default workspace."""
+        if isinstance(project_id, str) and project_id.strip():
+            return project_id
+        return self._resolve_default_project_for_owner(owner_id)
+
+    def _ensure_document_ownership(
+        self,
+        *,
+        document_id: str,
+        owner_id: str,
+        project_id: str,
+    ) -> str:
+        """Persist ownership links, falling back to owner default workspace."""
+        if self.ownership_service is None:
+            return project_id
+
+        try:
+            self.ownership_service.assign_project_owner(
+                project_id=project_id,
+                user_id=owner_id,
+            )
+            self.ownership_service.assign_document_owner(
+                document_id=document_id,
+                user_id=owner_id,
+                project_id=project_id,
+            )
+            return project_id
+        except Exception:  # noqa: BLE001
+            fallback_project_id = self._resolve_default_project_for_owner(owner_id)
+            if fallback_project_id == project_id:
+                return project_id
+            try:
+                self.ownership_service.assign_project_owner(
+                    project_id=fallback_project_id,
+                    user_id=owner_id,
+                )
+                self.ownership_service.assign_document_owner(
+                    document_id=document_id,
+                    user_id=owner_id,
+                    project_id=fallback_project_id,
+                )
+                return fallback_project_id
+            except Exception:  # noqa: BLE001
+                return project_id
+
+    def _attach_document_ownership(self, document: DocumentRecord) -> DocumentRecord:
+        """Merge ownership relation data into document metadata for internal consumers."""
+        if self.ownership_service is None:
+            return document
+
+        try:
+            owner = self.ownership_service.get_document_owner(document.id)
+        except Exception:  # noqa: BLE001
+            return document
+        if owner is not None:
+            document.metadata["owner_id"] = owner.user_id
+            document.metadata["project"] = owner.project_id
+            return document
+
+        resolved_owner_id = self._document_owner_id(document)
+        if not document.metadata.get("project"):
+            document.metadata["project"] = self._resolve_default_project_for_owner(
+                resolved_owner_id
+            )
+        return document
 
     async def upload_document(
         self,
@@ -95,6 +187,7 @@ class DocumentIngestionService:
         digest = hashlib.sha256(payload).hexdigest()
         now = datetime.now(UTC)
         resolved_owner_id = self._resolve_owner_id(owner_id)
+        resolved_project_id = self._resolve_project_id(resolved_owner_id, project)
         document = DocumentRecord(
             id=document_id,
             name=safe_name,
@@ -105,7 +198,7 @@ class DocumentIngestionService:
             sha256=digest,
             metadata={
                 "owner_id": resolved_owner_id,
-                "project": project,
+                "project": resolved_project_id,
                 "tags": tags or [],
                 "language": None,
                 "author": None,
@@ -120,6 +213,12 @@ class DocumentIngestionService:
             },
         )
         self.repository.save(document)
+        resolved_project_id = self._ensure_document_ownership(
+            document_id=document.id,
+            owner_id=resolved_owner_id,
+            project_id=resolved_project_id,
+        )
+        document.metadata["project"] = resolved_project_id
 
         try:
             parser = self.parser_factory.resolve(safe_name)
@@ -129,6 +228,7 @@ class DocumentIngestionService:
                 document.metadata["language"] = parsed.language
             document.metadata.update(parsed.metadata)
             document.metadata["owner_id"] = resolved_owner_id
+            document.metadata["project"] = resolved_project_id
             document.metadata["parser"] = parsed.parser or spec.parser
 
             page_count = self._to_int(document.metadata.get("page_count"))
@@ -166,6 +266,7 @@ class DocumentIngestionService:
             document.metadata["processing_time_ms"] = elapsed_ms
             document.metadata["processing_status"] = "completed"
             document.metadata["owner_id"] = resolved_owner_id
+            document.metadata["project"] = resolved_project_id
             document.updated_at = datetime.now(UTC)
             self.repository.update(document)
             return document
@@ -177,13 +278,17 @@ class DocumentIngestionService:
             document.metadata["processing_status"] = "failed"
             document.metadata["processing_error"] = str(exc)
             document.metadata["owner_id"] = resolved_owner_id
+            document.metadata["project"] = resolved_project_id
             document.updated_at = datetime.now(UTC)
             self.repository.update(document)
             self.logger.exception("Failed to index document %s: %s", document.id, exc)
             raise
 
     def list_documents(self, owner_id: str | None = None) -> list[DocumentRecord]:
-        documents = self.repository.list_all()
+        documents = [
+            self._attach_document_ownership(document)
+            for document in self.repository.list_all()
+        ]
         if owner_id is None:
             return documents
 
@@ -202,6 +307,7 @@ class DocumentIngestionService:
         document = self.repository.get(document_id)
         if document is None:
             return None
+        document = self._attach_document_ownership(document)
         if owner_id is None:
             return document
         if self._document_owner_id(document) != self._resolve_owner_id(owner_id):
