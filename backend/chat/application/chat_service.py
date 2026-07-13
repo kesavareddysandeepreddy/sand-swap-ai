@@ -18,6 +18,7 @@ from backend.core.logging.logger import LoggerFactory
 from backend.llm.client import OllamaClient
 from backend.memory.core.memory_manager import MemoryManager
 from backend.memory.extractors.llm_memory_extractor import LLMMemoryExtractor
+from backend.services.ownership_service import OwnershipService
 
 
 class ChatService(BaseService):
@@ -31,6 +32,7 @@ class ChatService(BaseService):
         ollama_client: OllamaClient | None = None,
         memory_manager: MemoryManager | None = None,
         memory_extractor: LLMMemoryExtractor | None = None,
+        ownership_service: OwnershipService | None = None,
     ) -> None:
         self.session_manager = session_manager or SessionManager()
         self.context_builder = context_builder or ContextBuilder(
@@ -41,7 +43,60 @@ class ChatService(BaseService):
         self.ollama_client = ollama_client or OllamaClient()
         self.memory_manager = memory_manager or MemoryManager()
         self.memory_extractor = memory_extractor or LLMMemoryExtractor()
+        self.ownership_service = ownership_service
         self.logger = LoggerFactory.get_logger("ChatService")
+
+    def _resolve_default_project_for_user(self, user_id: str) -> str:
+        """Resolve a user's default project id with a legacy-safe fallback."""
+        if self.ownership_service is None:
+            return "default"
+        try:
+            projects = self.ownership_service.list_projects_for_user(user_id)
+            if not projects:
+                return "default"
+            default_project = next(
+                (
+                    project
+                    for project in projects
+                    if project.name.strip().lower() in {"default", "default workspace"}
+                ),
+                None,
+            )
+            return (default_project or projects[0]).id
+        except Exception:  # noqa: BLE001
+            return "default"
+
+    def _ensure_conversation_ownership(
+        self, user_id: str, conversation_id: str
+    ) -> None:
+        """Persist conversation ownership and project association safeguards."""
+        if self.ownership_service is None:
+            return
+
+        resolved_project_id = self._resolve_default_project_for_user(user_id)
+        try:
+            self.ownership_service.assign_project_owner(
+                project_id=resolved_project_id,
+                user_id=user_id,
+            )
+            self.ownership_service.assign_conversation_owner(
+                conversation_id=conversation_id,
+                user_id=user_id,
+            )
+            return
+        except Exception:  # noqa: BLE001
+            fallback_project_id = "default"
+            try:
+                self.ownership_service.assign_project_owner(
+                    project_id=fallback_project_id,
+                    user_id=user_id,
+                )
+                self.ownership_service.assign_conversation_owner(
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                )
+            except Exception:  # noqa: BLE001
+                return
 
     @property
     def name(self) -> str:
@@ -69,9 +124,17 @@ class ChatService(BaseService):
             conversation_id,
             message,
         )
+        existing_conversation = None
+        if conversation_id is not None:
+            existing_conversation = self.session_manager.get_session(
+                user_id,
+                conversation_id,
+            )
         conversation = self.session_manager.get_or_create_session(
             user_id, conversation_id
         )
+        if existing_conversation is None:
+            self._ensure_conversation_ownership(user_id, conversation.id)
         conversation.add_message("user", message)
         self.session_manager.conversation_store.save_conversation(conversation)
 
