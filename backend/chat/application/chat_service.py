@@ -117,6 +117,7 @@ class ChatService(BaseService):
         user_id: str,
         message: str,
         conversation_id: str | None = None,
+        project_id: str | None = None,
     ) -> dict[str, Any]:
         """Process a user message and return the assistant response."""
         self.logger.info(
@@ -143,6 +144,7 @@ class ChatService(BaseService):
             user_id=user_id,
             conversation_id=conversation.id,
             current_message=message,
+            project_id=project_id,
         )
         self.logger.info(
             "send_message() context output history_count=%s memory_count=%s document_count=%s conversation_id=%s",
@@ -170,7 +172,13 @@ class ChatService(BaseService):
         }
 
         self.logger.info("Starting memory extraction")
-        asyncio.create_task(self._extract_memories_after_response(user_id, message))
+        asyncio.create_task(
+            self._extract_memories_after_response(
+                user_id,
+                message,
+                project_id=project_id,
+            )
+        )
         return response_payload
 
     async def get_history(
@@ -189,7 +197,11 @@ class ChatService(BaseService):
         return self.session_manager.get_session(user_id, conversation_id)
 
     async def _extract_memories_after_response(
-        self, user_id: str, message: str
+        self,
+        user_id: str,
+        message: str,
+        *,
+        project_id: str | None = None,
     ) -> None:
         """Extract long-term memories after the response is returned."""
         try:
@@ -197,6 +209,7 @@ class ChatService(BaseService):
                 self.memory_extractor.process,
                 user_id,
                 message,
+                project_id=project_id,
             )
             self.logger.info(
                 "Memory extraction task completed with %d memories",

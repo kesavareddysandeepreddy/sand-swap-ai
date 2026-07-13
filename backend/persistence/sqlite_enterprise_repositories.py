@@ -58,6 +58,7 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
                     google_subject_id TEXT,
                     avatar_url TEXT,
                     auth_provider TEXT NOT NULL DEFAULT 'local',
+                    active_project_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     is_active INTEGER NOT NULL
@@ -71,6 +72,7 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
                 "auth_provider",
                 "TEXT NOT NULL DEFAULT 'local'",
             )
+            self._ensure_column("enterprise_users", "active_project_id", "TEXT")
 
     def _ensure_column(
         self, table_name: str, column_name: str, column_sql: str
@@ -94,8 +96,8 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
                 """
                 INSERT INTO enterprise_users (
                     id, email, display_name, google_subject_id, avatar_url,
-                    auth_provider, created_at, updated_at, is_active
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    auth_provider, active_project_id, created_at, updated_at, is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user.id,
@@ -104,6 +106,7 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
                     user.google_subject_id,
                     user.avatar_url,
                     user.auth_provider,
+                    user.active_project_id,
                     user.created_at.isoformat(),
                     user.updated_at.isoformat(),
                     1 if user.is_active else 0,
@@ -119,14 +122,15 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
                 """
                 INSERT INTO enterprise_users (
                     id, email, display_name, google_subject_id, avatar_url,
-                    auth_provider, created_at, updated_at, is_active
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    auth_provider, active_project_id, created_at, updated_at, is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     email=excluded.email,
                     display_name=excluded.display_name,
                     google_subject_id=excluded.google_subject_id,
                     avatar_url=excluded.avatar_url,
                     auth_provider=excluded.auth_provider,
+                    active_project_id=excluded.active_project_id,
                     updated_at=excluded.updated_at,
                     is_active=excluded.is_active
                 """,
@@ -137,6 +141,7 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
                     user.google_subject_id,
                     user.avatar_url,
                     user.auth_provider,
+                    user.active_project_id,
                     user.created_at.isoformat(),
                     user.updated_at.isoformat(),
                     1 if user.is_active else 0,
@@ -177,12 +182,13 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
             cursor = self._connection.execute(
                 """
                 UPDATE enterprise_users
-                SET email = ?, display_name = ?, updated_at = ?, is_active = ?
+                SET email = ?, display_name = ?, active_project_id = ?, updated_at = ?, is_active = ?
                 WHERE id = ?
                 """,
                 (
                     updated.email,
                     updated.display_name,
+                    updated.active_project_id,
                     updated.updated_at.isoformat(),
                     1 if updated.is_active else 0,
                     updated.id,
@@ -216,6 +222,9 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
             ),
             avatar_url=str(row["avatar_url"]) if row["avatar_url"] else None,
             auth_provider=str(row["auth_provider"]),
+            active_project_id=(
+                str(row["active_project_id"]) if row["active_project_id"] else None
+            ),
             created_at=datetime.fromisoformat(str(row["created_at"])),
             updated_at=datetime.fromisoformat(str(row["updated_at"])),
             is_active=bool(int(row["is_active"])),

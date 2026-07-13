@@ -10,11 +10,12 @@ from pydantic import BaseModel, Field
 
 from backend.api.dependencies import (
     CurrentUserDependency,
+    OwnershipContextDependency,
 )
 from backend.api.dependencies import get_chat_service as resolve_chat_service
 from backend.chat.application.chat_service import ChatService
 from backend.core.logging.logger import LoggerFactory
-from backend.services import resolve_owner_id
+from backend.services import resolve_owner_id, resolve_workspace_id
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = LoggerFactory.get_logger("ChatRoutes")
@@ -41,6 +42,7 @@ async def send_message(
     request: ChatRequest,
     chat_service: Annotated[ChatService, Depends(resolve_chat_service)],
     current_user: CurrentUserDependency,
+    ownership_context: OwnershipContextDependency,
 ) -> ChatResponse:
     """Send a user message to the chat service."""
     fallback_user_id = request.user_id
@@ -54,11 +56,13 @@ async def send_message(
         current_user,
         fallback_user_id=fallback_user_id,
     )
+    workspace_id = resolve_workspace_id(ownership_context)
     try:
         result = await chat_service.send_message(
             user_id=effective_user_id,
             message=request.message,
             conversation_id=request.conversation_id,
+            project_id=workspace_id,
         )
     except KeyError as exc:
         logger.warning("Chat service could not resolve the conversation: %s", exc)

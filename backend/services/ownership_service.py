@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from backend.domain.entities.ownership import (
     AgentOwner,
     ConversationOwner,
@@ -16,6 +18,7 @@ from backend.domain.repositories.ownership_repositories import (
     MemoryOwnerRepository,
     ProjectRepository,
 )
+from backend.services.user_service import UserService
 
 
 class OwnershipService:
@@ -24,12 +27,14 @@ class OwnershipService:
     def __init__(
         self,
         *,
+        user_service: UserService,
         project_repository: ProjectRepository,
         document_owner_repository: DocumentOwnerRepository,
         conversation_owner_repository: ConversationOwnerRepository,
         memory_owner_repository: MemoryOwnerRepository,
         agent_owner_repository: AgentOwnerRepository,
     ) -> None:
+        self.user_service = user_service
         self.project_repository = project_repository
         self.document_owner_repository = document_owner_repository
         self.conversation_owner_repository = conversation_owner_repository
@@ -184,14 +189,134 @@ class OwnershipService:
             description="Default workspace for authenticated user",
         )
 
+    def get_active_project_for_user(self, user_id: str) -> Project:
+        """Resolve and persist an active workspace for the user."""
+        active_project_id = self.user_service.get_active_project_id(user_id)
+        if active_project_id:
+            active = self.project_repository.get_by_id(active_project_id)
+            if active is not None and active.owner_id == user_id:
+                return active
+
+        default_project = self.get_default_project_for_user(user_id)
+        self.user_service.set_active_project_id(user_id, default_project.id)
+        return default_project
+
+    def set_active_project_for_user(self, user_id: str, project_id: str) -> Project:
+        """Set and persist the active workspace for a user."""
+        project = self.project_repository.get_by_id(project_id)
+        if project is None:
+            raise ValueError("Workspace not found")
+        if project.owner_id != user_id:
+            raise ValueError("Workspace does not belong to the user")
+
+        self.user_service.set_active_project_id(user_id, project.id)
+        return project
+
+    def create_workspace_for_user(
+        self,
+        *,
+        user_id: str,
+        name: str,
+        description: str = "",
+        set_active: bool = True,
+    ) -> Project:
+        """Create a new workspace for the user and optionally activate it."""
+        project = Project.create(
+            project_id=str(uuid4()),
+            owner_id=user_id,
+            name=name,
+            description=description,
+        )
+        create_fn = getattr(self.project_repository, "create", None)
+        if callable(create_fn):
+            project = create_fn(project)
+        else:
+            self.project_repository.save(project)
+        if set_active:
+            self.user_service.set_active_project_id(user_id, project.id)
+        return project
+
+    def rename_workspace_for_user(
+        self,
+        *,
+        user_id: str,
+        project_id: str,
+        name: str,
+        description: str | None = None,
+    ) -> Project:
+        """Rename a workspace that belongs to the user."""
+        existing = self.project_repository.get_by_id(project_id)
+        if existing is None:
+            raise ValueError("Workspace not found")
+        if existing.owner_id != user_id:
+            raise ValueError("Workspace does not belong to the user")
+
+        updated = Project(
+            id=existing.id,
+            owner_id=existing.owner_id,
+            name=name,
+            description=(
+                description if description is not None else existing.description
+            ),
+            created_at=existing.created_at,
+        )
+        update_fn = getattr(self.project_repository, "update", None)
+        if callable(update_fn):
+            return update_fn(updated)
+        self.project_repository.save(updated)
+        return updated
+
+    def delete_workspace_for_user(self, *, user_id: str, project_id: str) -> bool:
+        """Delete a workspace and rotate active selection when required."""
+        existing = self.project_repository.get_by_id(project_id)
+        if existing is None:
+            return False
+        if existing.owner_id != user_id:
+            raise ValueError("Workspace does not belong to the user")
+
+        workspaces = self.list_projects_for_user(user_id)
+        if len(workspaces) <= 1:
+            raise ValueError("Cannot delete the last workspace")
+
+        deleted = self.project_repository.delete(project_id)
+        if not deleted:
+            return False
+
+        active = self.user_service.get_active_project_id(user_id)
+        if active == project_id:
+            next_workspace = next(
+                (workspace for workspace in workspaces if workspace.id != project_id),
+                None,
+            )
+            if next_workspace is not None:
+                self.user_service.set_active_project_id(user_id, next_workspace.id)
+        return True
+
     def resolve_request_context(
         self,
         *,
         user_id: str,
+        requested_project_id: str | None = None,
     ) -> dict[str, str]:
         """Resolve per-request ownership context for authenticated flows."""
-        default_project = self.get_default_project_for_user(user_id)
+        user = self.user_service.get_user(user_id)
+        if user is None:
+            return {
+                "user_id": user_id,
+                "project_id": "default",
+            }
+
+        if requested_project_id:
+            try:
+                active_project = self.set_active_project_for_user(
+                    user_id,
+                    requested_project_id,
+                )
+            except ValueError:
+                active_project = self.get_active_project_for_user(user_id)
+        else:
+            active_project = self.get_active_project_for_user(user_id)
         return {
             "user_id": user_id,
-            "project_id": default_project.id,
+            "project_id": active_project.id,
         }

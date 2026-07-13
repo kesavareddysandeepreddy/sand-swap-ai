@@ -59,8 +59,8 @@ const mergeConversationMessages = (
     };
 };
 
-export const useChat = (ownerId: string) => {
-    const [initialState] = useState(() => loadChatState(ownerId));
+export const useChat = (ownerId: string, storageScopeId: string) => {
+    const [initialState] = useState(() => loadChatState(storageScopeId));
 
     const [conversations, setConversations] = useState<ConversationState[]>(initialState.conversations);
     const [activeConversationId, setActiveConversationId] = useState<string | null>(initialState.activeConversationId);
@@ -68,15 +68,15 @@ export const useChat = (ownerId: string) => {
     const [error, setError] = useState<string | null>(null);
 
     useLayoutEffect(() => {
-        const next = loadChatState(ownerId);
+        const next = loadChatState(storageScopeId);
         setConversations(next.conversations);
         setActiveConversationId(next.activeConversationId);
         setError(null);
-    }, [ownerId]);
+    }, [storageScopeId]);
 
     useEffect(() => {
-        persistChatState(ownerId, conversations, activeConversationId);
-    }, [ownerId, conversations, activeConversationId]);
+        persistChatState(storageScopeId, conversations, activeConversationId);
+    }, [storageScopeId, conversations, activeConversationId]);
 
     const activeConversation = useMemo(
         () => conversations.find((conversation) => conversation.id === activeConversationId) ?? null,
@@ -278,6 +278,7 @@ export const useChat = (ownerId: string) => {
 
     return {
         userId: ownerId,
+        storageScopeId,
         conversations,
         activeConversation,
         activeConversationId,

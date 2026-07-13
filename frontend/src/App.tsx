@@ -13,6 +13,7 @@ const App = () => {
     const auth = useAuth();
     const { health, isLoading: healthLoading, error: healthError } = useHealth();
     const effectiveUserId = auth.effectiveUserId;
+    const workspaceScopeId = `${effectiveUserId}:${auth.activeWorkspaceId ?? "default"}`;
     const {
         conversations,
         activeConversation,
@@ -24,7 +25,7 @@ const App = () => {
         startNewConversation,
         renameConversation,
         deleteConversation,
-    } = useChat(effectiveUserId);
+    } = useChat(effectiveUserId, workspaceScopeId);
 
     return (
         <Routes>
@@ -36,6 +37,7 @@ const App = () => {
                         health={health}
                         healthLoading={healthLoading}
                         healthError={healthError}
+                        workspaceScopeId={workspaceScopeId}
                         conversations={conversations}
                         activeConversationId={activeConversationId}
                         onSelectConversation={setActiveConversationId}
@@ -57,9 +59,9 @@ const App = () => {
                         />
                     }
                 />
-                <Route path="memory" element={<MemoryPage ownerId={effectiveUserId} />} />
-                <Route path="documents" element={<DocumentsPage ownerId={effectiveUserId} />} />
-                <Route path="inspector" element={<RetrievalInspectorPage ownerId={effectiveUserId} />} />
+                <Route path="memory" element={<MemoryPage ownerId={workspaceScopeId} />} />
+                <Route path="documents" element={<DocumentsPage ownerId={workspaceScopeId} />} />
+                <Route path="inspector" element={<RetrievalInspectorPage ownerId={workspaceScopeId} />} />
             </Route>
             <Route path="*" element={<Navigate to="/chat" replace />} />
         </Routes>

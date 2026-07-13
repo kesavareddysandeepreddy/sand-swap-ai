@@ -6,6 +6,17 @@ import type {
 } from "../types/api";
 import { ApiError } from "./client";
 
+const WORKSPACE_STORAGE_KEY = "sand-swap-active-workspace-v1";
+
+const loadWorkspaceId = (): string | null => {
+    const value = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    if (!value) {
+        return null;
+    }
+    const normalized = value.trim();
+    return normalized || null;
+};
+
 const getBaseUrl = (): string => {
     const raw = (import.meta.env.VITE_API_BASE_URL ?? "").trim().replace(/\/$/, "");
     if (!raw) {
@@ -30,6 +41,10 @@ const request = async <T>(path: string, init: RequestInit): Promise<T> => {
     const session = loadAuthSession();
     if (session?.accessToken) {
         headers.set("Authorization", `Bearer ${session.accessToken}`);
+    }
+    const workspaceId = loadWorkspaceId();
+    if (workspaceId) {
+        headers.set("X-Workspace-Id", workspaceId);
     }
     const requestInit: RequestInit = {
         ...init,

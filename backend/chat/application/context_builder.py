@@ -45,6 +45,7 @@ class ContextBuilder:
         user_id: str,
         conversation_id: str,
         current_message: str,
+        project_id: str | None = None,
         max_history_messages: int | None = None,
         max_memories: int = 5,
         max_documents: int = 5,
@@ -79,12 +80,13 @@ class ContextBuilder:
                 relevance_query,
                 user_id,
                 conversation_id,
-                None,
+                project_id,
             )
             documents = self.document_retrieval_service.retrieve(
                 query=relevance_query,
                 top_k=max_documents,
                 owner_id=user_id,
+                project_id=project_id,
             )
             citations = self.document_retrieval_service.format_citations(documents)
             self.logger.info(

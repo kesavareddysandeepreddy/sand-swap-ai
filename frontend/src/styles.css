@@ -355,6 +355,47 @@ body {
     text-align: left;
 }
 
+.profile-workspace-label {
+    margin: 0.15rem 0 0;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-family: "IBM Plex Mono", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.workspace-switcher-row {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.workspace-select {
+    border: 1px solid rgba(179, 197, 180, 0.35);
+    background: rgba(9, 14, 12, 0.78);
+    color: inherit;
+    border-radius: 10px;
+    padding: 0.46rem 0.58rem;
+    font: inherit;
+}
+
+.workspace-active-chip {
+    display: inline-flex;
+    width: fit-content;
+    border: 1px solid rgba(122, 216, 182, 0.42);
+    border-radius: 999px;
+    padding: 0.22rem 0.6rem;
+    color: #d8f8ec;
+    background: rgba(122, 216, 182, 0.15);
+    font-size: 0.74rem;
+    font-family: "IBM Plex Mono", monospace;
+}
+
+.workspace-actions-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.42rem;
+}
+
 .google-signin-button {
     border: 1px solid var(--stroke);
     border-radius: 12px;

@@ -16,6 +16,7 @@ class User:
     google_subject_id: str | None
     avatar_url: str | None
     auth_provider: str
+    active_project_id: str | None
     created_at: datetime
     updated_at: datetime
     is_active: bool = True
@@ -30,6 +31,7 @@ class User:
         google_subject_id: str | None = None,
         avatar_url: str | None = None,
         auth_provider: str = "local",
+        active_project_id: str | None = None,
         is_active: bool = True,
     ) -> "User":
         """Build a new active user with initialized timestamps."""
@@ -41,6 +43,7 @@ class User:
             google_subject_id=google_subject_id,
             avatar_url=avatar_url,
             auth_provider=auth_provider,
+            active_project_id=active_project_id,
             created_at=now,
             updated_at=now,
             is_active=is_active,

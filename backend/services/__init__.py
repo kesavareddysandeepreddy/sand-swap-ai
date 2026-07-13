@@ -5,6 +5,7 @@ from backend.services.current_user import (
     get_current_user_id,
     normalize_user_id,
     resolve_owner_id,
+    resolve_workspace_id,
 )
 from backend.services.user_service import UserService
 
@@ -14,4 +15,5 @@ __all__ = [
     "get_current_user_id",
     "normalize_user_id",
     "resolve_owner_id",
+    "resolve_workspace_id",
 ]

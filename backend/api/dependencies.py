@@ -165,8 +165,15 @@ def get_ownership_service() -> OwnershipService:
         return container.resolve("ownership_service")
 
     enterprise_db_path = _get_enterprise_db_path()
+    user_repository = SQLiteUserRepository(db_path=enterprise_db_path)
+    project_repository = SQLiteProjectRepository(db_path=enterprise_db_path)
+    user_service = UserService(
+        user_repository=user_repository,
+        project_repository=project_repository,
+    )
     ownership_service = OwnershipService(
-        project_repository=SQLiteProjectRepository(db_path=enterprise_db_path),
+        user_service=user_service,
+        project_repository=project_repository,
         document_owner_repository=SQLiteDocumentOwnerRepository(
             db_path=enterprise_db_path
         ),
@@ -197,9 +204,13 @@ def get_request_ownership_context(
             }
 
     if current_user.is_authenticated and current_user.user_id is not None:
+        requested_project_id = request.headers.get("X-Workspace-Id")
+        if requested_project_id is not None:
+            requested_project_id = requested_project_id.strip() or None
         try:
             return ownership_service.resolve_request_context(
                 user_id=current_user.user_id,
+                requested_project_id=requested_project_id,
             )
         except Exception:  # noqa: BLE001
             return {
@@ -320,6 +331,7 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         token_service=token_service,
     )
     ownership_service = OwnershipService(
+        user_service=user_service,
         project_repository=enterprise_project_repository,
         document_owner_repository=enterprise_document_owner_repository,
         conversation_owner_repository=enterprise_conversation_owner_repository,

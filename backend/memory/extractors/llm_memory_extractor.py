@@ -248,7 +248,13 @@ class LLMMemoryExtractor:
 
         return extracted
 
-    def process(self, user_id: str, message: str) -> list[object]:
+    def process(
+        self,
+        user_id: str,
+        message: str,
+        *,
+        project_id: str | None = None,
+    ) -> list[object]:
         self.logger.info("process() called for user_id=%s", user_id)
         result = self.client.generate(
             prompt=PromptManager.memory_extraction(message),
@@ -275,6 +281,7 @@ class LLMMemoryExtractor:
                 memory_type=normalized["memory_type"],
                 key=normalized["key"],
                 value=normalized["value"],
+                project_id=project_id,
                 category=normalized["category"],
                 importance=normalized["importance"],
                 confidence=normalized["confidence"],
@@ -291,6 +298,7 @@ class LLMMemoryExtractor:
                     memory_type=item["memory_type"],
                     key=item["key"],
                     value=item["value"],
+                    project_id=project_id,
                     category=item["category"],
                     importance=item["importance"],
                     confidence=item["confidence"],

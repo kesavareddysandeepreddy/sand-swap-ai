@@ -6,15 +6,17 @@ import json
 import os
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from backend.api.dependencies import (
     AuthServiceDependency,
     OwnershipContextDependency,
+    OwnershipService,
     RequiredCurrentUserDependency,
     generate_user_id,
+    get_ownership_service,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -95,6 +97,53 @@ class CurrentUserResponse(BaseModel):
     display_name: str
     avatar_url: str | None = None
     project_id: str | None = None
+    auth_provider: str | None = None
+    google_subject_id: str | None = None
+
+
+class WorkspaceResponse(BaseModel):
+    """Workspace payload used by management endpoints."""
+
+    id: str
+    name: str
+    description: str
+    created_at: str
+    is_active: bool
+
+
+class CreateWorkspaceRequest(BaseModel):
+    """Create-workspace request payload."""
+
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    set_active: bool = True
+
+
+class RenameWorkspaceRequest(BaseModel):
+    """Rename-workspace request payload."""
+
+    name: str = Field(..., min_length=1)
+    description: str | None = None
+
+
+class SwitchWorkspaceRequest(BaseModel):
+    """Switch-active-workspace request payload."""
+
+    workspace_id: str = Field(..., min_length=1)
+
+
+def _to_workspace_response(
+    *,
+    workspace,
+    active_workspace_id: str,
+) -> WorkspaceResponse:
+    return WorkspaceResponse(
+        id=workspace.id,
+        name=workspace.name,
+        description=workspace.description,
+        created_at=workspace.created_at.isoformat(),
+        is_active=workspace.id == active_workspace_id,
+    )
 
 
 def _default_google_callback_uri(request: Request) -> str:
@@ -218,7 +267,9 @@ def me(
         email=user.email,
         display_name=user.display_name,
         avatar_url=user.avatar_url,
-        project_id=ownership_context.get("project_id"),
+        project_id=user.active_project_id or ownership_context.get("project_id"),
+        auth_provider=user.auth_provider,
+        google_subject_id=user.google_subject_id,
     )
 
 
@@ -367,7 +418,7 @@ def session_context(
     current_user: RequiredCurrentUserDependency,
     auth_service: AuthServiceDependency,
     ownership_context: OwnershipContextDependency,
-) -> dict[str, str]:
+) -> dict[str, str | None]:
     """Return authenticated user and workspace session context."""
     user_id = current_user.user_id
     if user_id is None:
@@ -387,5 +438,159 @@ def session_context(
         "email": user.email,
         "display_name": user.display_name,
         "avatar_url": user.avatar_url,
-        "project_id": ownership_context.get("project_id", "default"),
+        "project_id": user.active_project_id
+        or ownership_context.get("project_id", "default"),
     }
+
+
+@router.get("/workspaces", response_model=list[WorkspaceResponse])
+def list_workspaces(
+    current_user: RequiredCurrentUserDependency,
+    ownership_service: OwnershipService = Depends(get_ownership_service),
+) -> list[WorkspaceResponse]:
+    """List all workspaces for the authenticated user."""
+    user_id = current_user.user_id
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    active_workspace = ownership_service.get_active_project_for_user(user_id)
+    workspaces = ownership_service.list_projects_for_user(user_id)
+    return [
+        _to_workspace_response(
+            workspace=workspace,
+            active_workspace_id=active_workspace.id,
+        )
+        for workspace in workspaces
+    ]
+
+
+@router.post("/workspaces", response_model=WorkspaceResponse)
+def create_workspace(
+    payload: CreateWorkspaceRequest,
+    current_user: RequiredCurrentUserDependency,
+    ownership_service: OwnershipService = Depends(get_ownership_service),
+) -> WorkspaceResponse:
+    """Create a workspace for the authenticated user."""
+    user_id = current_user.user_id
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    workspace = ownership_service.create_workspace_for_user(
+        user_id=user_id,
+        name=payload.name.strip(),
+        description=payload.description.strip(),
+        set_active=payload.set_active,
+    )
+    active_workspace = ownership_service.get_active_project_for_user(user_id)
+    return _to_workspace_response(
+        workspace=workspace,
+        active_workspace_id=active_workspace.id,
+    )
+
+
+@router.patch("/workspaces/{workspace_id}", response_model=WorkspaceResponse)
+def rename_workspace(
+    workspace_id: str,
+    payload: RenameWorkspaceRequest,
+    current_user: RequiredCurrentUserDependency,
+    ownership_service: OwnershipService = Depends(get_ownership_service),
+) -> WorkspaceResponse:
+    """Rename a workspace that belongs to the authenticated user."""
+    user_id = current_user.user_id
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    try:
+        workspace = ownership_service.rename_workspace_for_user(
+            user_id=user_id,
+            project_id=workspace_id,
+            name=payload.name.strip(),
+            description=(payload.description.strip() if payload.description else None),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    active_workspace = ownership_service.get_active_project_for_user(user_id)
+    return _to_workspace_response(
+        workspace=workspace,
+        active_workspace_id=active_workspace.id,
+    )
+
+
+@router.delete("/workspaces/{workspace_id}")
+def delete_workspace(
+    workspace_id: str,
+    current_user: RequiredCurrentUserDependency,
+    ownership_service: OwnershipService = Depends(get_ownership_service),
+) -> dict[str, bool]:
+    """Delete a workspace that belongs to the authenticated user."""
+    user_id = current_user.user_id
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    try:
+        deleted = ownership_service.delete_workspace_for_user(
+            user_id=user_id,
+            project_id=workspace_id,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = (
+            status.HTTP_400_BAD_REQUEST
+            if detail == "Cannot delete the last workspace"
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found",
+        )
+    return {"deleted": True}
+
+
+@router.post("/workspaces/switch", response_model=WorkspaceResponse)
+def switch_workspace(
+    payload: SwitchWorkspaceRequest,
+    current_user: RequiredCurrentUserDependency,
+    ownership_service: OwnershipService = Depends(get_ownership_service),
+) -> WorkspaceResponse:
+    """Switch active workspace for the authenticated user."""
+    user_id = current_user.user_id
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    try:
+        workspace = ownership_service.set_active_project_for_user(
+            user_id,
+            payload.workspace_id.strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return _to_workspace_response(
+        workspace=workspace,
+        active_workspace_id=workspace.id,
+    )

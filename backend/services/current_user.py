@@ -42,3 +42,14 @@ def resolve_owner_id(
         if normalized_fallback.startswith("anon-"):
             return normalized_fallback
     return ANONYMOUS_USER_ID
+
+
+def resolve_workspace_id(context: dict[str, str] | None) -> str:
+    """Resolve workspace/project id from request ownership context."""
+    if context is None:
+        return "default"
+    project_id = context.get("project_id")
+    if not isinstance(project_id, str):
+        return "default"
+    normalized = project_id.strip()
+    return normalized or "default"

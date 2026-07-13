@@ -8,10 +8,14 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from backend.api.dependencies import CurrentUserDependency, get_memory_manager
+from backend.api.dependencies import (
+    CurrentUserDependency,
+    OwnershipContextDependency,
+    get_memory_manager,
+)
 from backend.memory.core.memory_manager import MemoryManager
 from backend.memory.models.memory_record import MemoryRecord
-from backend.services import resolve_owner_id
+from backend.services import resolve_owner_id, resolve_workspace_id
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -21,6 +25,7 @@ class MemoryItem(BaseModel):
 
     id: str
     user_id: str
+    project_id: str | None
     memory_type: str
     category: str
     key: str
@@ -63,6 +68,7 @@ def _serialize_memory(memory: MemoryRecord) -> MemoryItem:
     return MemoryItem(
         id=memory.id,
         user_id=memory.user_id,
+        project_id=memory.project_id,
         memory_type=memory.memory_type,
         category=memory.category,
         key=memory.key,
@@ -87,10 +93,17 @@ def list_memories(
     min_importance: float | None = Query(default=None, ge=0.0, le=1.0),
     manager: MemoryManager = Depends(get_memory_manager),
     current_user: CurrentUserDependency = None,
+    ownership_context: OwnershipContextDependency = None,
 ) -> MemoryListResponse:
     """List memories with pagination and filters."""
     owner_id = resolve_owner_id(current_user)
-    memories = [memory for memory in manager.recall_all() if memory.user_id == owner_id]
+    workspace_id = resolve_workspace_id(ownership_context)
+    memories = [
+        memory
+        for memory in manager.recall_all()
+        if memory.user_id == owner_id
+        and (memory.project_id or "default") == workspace_id
+    ]
 
     if search:
         needle = search.lower().strip()
@@ -133,11 +146,17 @@ def get_memory(
     memory_id: str,
     manager: MemoryManager = Depends(get_memory_manager),
     current_user: CurrentUserDependency = None,
+    ownership_context: OwnershipContextDependency = None,
 ) -> MemoryItem:
     """Get one memory by id."""
     owner_id = resolve_owner_id(current_user)
+    workspace_id = resolve_workspace_id(ownership_context)
     memory = manager.store.get(memory_id)
-    if memory is None or memory.user_id != owner_id:
+    if (
+        memory is None
+        or memory.user_id != owner_id
+        or (memory.project_id or "default") != workspace_id
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Memory not found",
@@ -151,11 +170,17 @@ def update_memory(
     payload: MemoryUpdateRequest,
     manager: MemoryManager = Depends(get_memory_manager),
     current_user: CurrentUserDependency = None,
+    ownership_context: OwnershipContextDependency = None,
 ) -> MemoryItem:
     """Update editable memory fields."""
     owner_id = resolve_owner_id(current_user)
+    workspace_id = resolve_workspace_id(ownership_context)
     memory = manager.store.get(memory_id)
-    if memory is None or memory.user_id != owner_id:
+    if (
+        memory is None
+        or memory.user_id != owner_id
+        or (memory.project_id or "default") != workspace_id
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Memory not found",
@@ -180,11 +205,17 @@ def delete_memory(
     memory_id: str,
     manager: MemoryManager = Depends(get_memory_manager),
     current_user: CurrentUserDependency = None,
+    ownership_context: OwnershipContextDependency = None,
 ) -> None:
     """Delete one memory by id."""
     owner_id = resolve_owner_id(current_user)
+    workspace_id = resolve_workspace_id(ownership_context)
     memory = manager.store.get(memory_id)
-    if memory is None or memory.user_id != owner_id:
+    if (
+        memory is None
+        or memory.user_id != owner_id
+        or (memory.project_id or "default") != workspace_id
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Memory not found",
@@ -202,11 +233,16 @@ def delete_memory(
 def delete_all_memories(
     manager: MemoryManager = Depends(get_memory_manager),
     current_user: CurrentUserDependency = None,
+    ownership_context: OwnershipContextDependency = None,
 ) -> DeleteAllResponse:
     """Delete all memories from the store."""
     owner_id = resolve_owner_id(current_user)
+    workspace_id = resolve_workspace_id(ownership_context)
     all_memories = [
-        memory for memory in manager.recall_all() if memory.user_id == owner_id
+        memory
+        for memory in manager.recall_all()
+        if memory.user_id == owner_id
+        and (memory.project_id or "default") == workspace_id
     ]
     deleted = 0
     for memory in all_memories:

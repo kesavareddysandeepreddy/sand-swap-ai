@@ -71,6 +71,15 @@ class DocumentIngestionService:
         owner_id = document.metadata.get("owner_id")
         return cls._resolve_owner_id(owner_id if isinstance(owner_id, str) else None)
 
+    @staticmethod
+    def _document_project_id(document: DocumentRecord) -> str:
+        """Return normalized project id stored on a document."""
+        project_id = document.metadata.get("project")
+        if not isinstance(project_id, str):
+            return "default"
+        normalized = project_id.strip()
+        return normalized or "default"
+
     def _resolve_default_project_for_owner(self, owner_id: str) -> str:
         """Resolve the owner default project id with a legacy-safe fallback."""
         if self.ownership_service is None:
@@ -188,9 +197,6 @@ class DocumentIngestionService:
         now = datetime.now(UTC)
         resolved_owner_id = self._resolve_owner_id(owner_id)
         resolved_project_id = self._resolve_project_id(resolved_owner_id, project)
-        ownership_project_id = self._resolve_default_project_for_owner(
-            resolved_owner_id
-        )
         document = DocumentRecord(
             id=document_id,
             name=safe_name,
@@ -269,7 +275,7 @@ class DocumentIngestionService:
             resolved_project_id = self._ensure_document_ownership(
                 document_id=document.id,
                 owner_id=resolved_owner_id,
-                project_id=ownership_project_id,
+                project_id=resolved_project_id,
             )
             document.metadata["project"] = resolved_project_id
             document.updated_at = datetime.now(UTC)
@@ -289,33 +295,56 @@ class DocumentIngestionService:
             self.logger.exception("Failed to index document %s: %s", document.id, exc)
             raise
 
-    def list_documents(self, owner_id: str | None = None) -> list[DocumentRecord]:
+    def list_documents(
+        self,
+        owner_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[DocumentRecord]:
         documents = [
             self._attach_document_ownership(document)
             for document in self.repository.list_all()
         ]
-        if owner_id is None:
+        if owner_id is None and project_id is None:
             return documents
 
-        resolved_owner_id = self._resolve_owner_id(owner_id)
-        return [
-            document
-            for document in documents
-            if self._document_owner_id(document) == resolved_owner_id
-        ]
+        resolved_owner_id = (
+            self._resolve_owner_id(owner_id) if owner_id is not None else None
+        )
+        resolved_project_id = (
+            project_id.strip() if isinstance(project_id, str) else None
+        )
+        filtered = documents
+        if resolved_owner_id is not None:
+            filtered = [
+                document
+                for document in filtered
+                if self._document_owner_id(document) == resolved_owner_id
+            ]
+        if resolved_project_id:
+            filtered = [
+                document
+                for document in filtered
+                if self._document_project_id(document) == resolved_project_id
+            ]
+        return filtered
 
     def get_document(
         self,
         document_id: str,
         owner_id: str | None = None,
+        project_id: str | None = None,
     ) -> DocumentRecord | None:
         document = self.repository.get(document_id)
         if document is None:
             return None
         document = self._attach_document_ownership(document)
-        if owner_id is None:
+        if owner_id is None and project_id is None:
             return document
-        if self._document_owner_id(document) != self._resolve_owner_id(owner_id):
+        if owner_id is not None and self._document_owner_id(
+            document
+        ) != self._resolve_owner_id(owner_id):
+            return None
+        if project_id and self._document_project_id(document) != project_id.strip():
             return None
         return document
 
@@ -323,8 +352,16 @@ class DocumentIngestionService:
         self,
         document_id: str,
         owner_id: str | None = None,
+        project_id: str | None = None,
     ) -> list[RetrievedChunk]:
-        if self.get_document(document_id, owner_id=owner_id) is None:
+        if (
+            self.get_document(
+                document_id,
+                owner_id=owner_id,
+                project_id=project_id,
+            )
+            is None
+        ):
             return []
         return self.vector_store.list_chunks(document_id=document_id)
 
@@ -332,8 +369,13 @@ class DocumentIngestionService:
         self,
         document_id: str,
         owner_id: str | None = None,
+        project_id: str | None = None,
     ) -> bool:
-        document = self.get_document(document_id, owner_id=owner_id)
+        document = self.get_document(
+            document_id,
+            owner_id=owner_id,
+            project_id=project_id,
+        )
         if document is None:
             return False
 
@@ -346,8 +388,12 @@ class DocumentIngestionService:
 
         return deleted
 
-    def delete_all_documents(self, owner_id: str | None = None) -> int:
-        documents = self.list_documents(owner_id=owner_id)
+    def delete_all_documents(
+        self,
+        owner_id: str | None = None,
+        project_id: str | None = None,
+    ) -> int:
+        documents = self.list_documents(owner_id=owner_id, project_id=project_id)
         for document in documents:
             path = Path(document.stored_path)
             if path.exists():
@@ -378,6 +424,7 @@ class DocumentRetrievalService:
         *,
         top_k: int = 5,
         owner_id: str | None = None,
+        project_id: str | None = None,
         document_id: str | None = None,
         file_type: str | None = None,
         category: str | None = None,
@@ -388,6 +435,8 @@ class DocumentRetrievalService:
         if owner_id is not None:
             normalized_owner_id = normalize_user_id(owner_id)
             filters["owner_id"] = normalized_owner_id
+        if project_id:
+            filters["project"] = project_id
         if document_id:
             filters["document_id"] = document_id
         if file_type:

@@ -5,11 +5,14 @@ import type {
     AuthUserProfile,
     ChatRequest,
     ChatResponse,
+    CreateWorkspaceRequest,
     GoogleOAuthExchangeRequest,
     GoogleOAuthStartResponse,
     HealthResponse,
     LogoutRequest,
     RefreshTokenRequest,
+    RenameWorkspaceRequest,
+    WorkspaceRecord,
 } from "../types/api";
 
 export class ApiError extends Error {
@@ -24,6 +27,7 @@ export class ApiError extends Error {
 export class ApiClient {
     private readonly baseUrl: string;
     private authToken: string | null = null;
+    private workspaceId: string | null = null;
 
     constructor(
         baseUrl = import.meta.env.VITE_API_BASE_URL ?? "",
@@ -33,6 +37,10 @@ export class ApiClient {
 
     setAuthToken(token: string | null): void {
         this.authToken = token;
+    }
+
+    setWorkspaceId(workspaceId: string | null): void {
+        this.workspaceId = workspaceId;
     }
 
     async getHealth(): Promise<HealthResponse> {
@@ -105,12 +113,60 @@ export class ApiClient {
         });
     }
 
+    async listWorkspaces(): Promise<WorkspaceRecord[]> {
+        return this.request<WorkspaceRecord[]>("/auth/workspaces", {
+            method: "GET",
+        });
+    }
+
+    async createWorkspace(payload: CreateWorkspaceRequest): Promise<WorkspaceRecord> {
+        return this.request<WorkspaceRecord>("/auth/workspaces", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async renameWorkspace(
+        workspaceId: string,
+        payload: RenameWorkspaceRequest
+    ): Promise<WorkspaceRecord> {
+        return this.request<WorkspaceRecord>(`/auth/workspaces/${workspaceId}`, {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async deleteWorkspace(workspaceId: string): Promise<{ deleted: boolean }> {
+        return this.request<{ deleted: boolean }>(`/auth/workspaces/${workspaceId}`, {
+            method: "DELETE",
+        });
+    }
+
+    async switchWorkspace(workspaceId: string): Promise<WorkspaceRecord> {
+        return this.request<WorkspaceRecord>("/auth/workspaces/switch", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ workspace_id: workspaceId }),
+        });
+    }
+
     private async request<T>(path: string, init: RequestInit): Promise<T> {
         const endpoint = this.buildEndpoint(path);
         let response: Response;
         const headers = new Headers(init.headers);
         if (this.authToken) {
             headers.set("Authorization", `Bearer ${this.authToken}`);
+        }
+        if (this.workspaceId) {
+            headers.set("X-Workspace-Id", this.workspaceId);
         }
         const requestInit: RequestInit = {
             ...init,

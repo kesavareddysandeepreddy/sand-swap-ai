@@ -54,6 +54,25 @@ export interface AuthUserProfile {
     google_subject_id?: string | null;
 }
 
+export interface WorkspaceRecord {
+    id: string;
+    name: string;
+    description: string;
+    created_at: string;
+    is_active: boolean;
+}
+
+export interface CreateWorkspaceRequest {
+    name: string;
+    description?: string;
+    set_active?: boolean;
+}
+
+export interface RenameWorkspaceRequest {
+    name: string;
+    description?: string | null;
+}
+
 export interface GoogleOAuthStartResponse {
     provider: string;
     authorization_url: string;
