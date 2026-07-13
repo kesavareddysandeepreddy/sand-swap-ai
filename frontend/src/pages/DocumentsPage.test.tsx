@@ -42,7 +42,7 @@ describe("DocumentsPage", () => {
     it("renders uploaded document list", () => {
         render(
             <BrowserRouter>
-                <DocumentsPage />
+                <DocumentsPage ownerId="user-1" />
             </BrowserRouter>
         );
 
@@ -53,7 +53,7 @@ describe("DocumentsPage", () => {
     it("triggers search filtering", async () => {
         render(
             <BrowserRouter>
-                <DocumentsPage />
+                <DocumentsPage ownerId="user-1" />
             </BrowserRouter>
         );
 

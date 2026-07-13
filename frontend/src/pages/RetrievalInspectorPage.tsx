@@ -1,9 +1,13 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { documentsApi } from "../api/documents";
 import type { DocumentRecord, RetrievedChunk } from "../types/api";
 
-export const RetrievalInspectorPage = () => {
+interface RetrievalInspectorPageProps {
+    ownerId: string;
+}
+
+export const RetrievalInspectorPage = ({ ownerId }: RetrievalInspectorPageProps) => {
     const [query, setQuery] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -11,6 +15,16 @@ export const RetrievalInspectorPage = () => {
     const [citations, setCitations] = useState<string[]>([]);
     const [sourceDocument, setSourceDocument] = useState<DocumentRecord | null>(null);
     const [sourceLoading, setSourceLoading] = useState(false);
+
+    useEffect(() => {
+        setQuery("");
+        setIsLoading(false);
+        setError(null);
+        setChunks([]);
+        setCitations([]);
+        setSourceDocument(null);
+        setSourceLoading(false);
+    }, [ownerId]);
 
     const hasResults = useMemo(() => chunks.length > 0, [chunks.length]);
 

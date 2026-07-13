@@ -40,7 +40,7 @@ describe("RetrievalInspectorPage", () => {
             ],
         });
 
-        render(<RetrievalInspectorPage />);
+        render(<RetrievalInspectorPage ownerId="user-1" />);
 
         fireEvent.change(
             screen.getByPlaceholderText(
@@ -59,7 +59,7 @@ describe("RetrievalInspectorPage", () => {
     });
 
     it("shows retrieval results", async () => {
-        render(<RetrievalInspectorPage />);
+        render(<RetrievalInspectorPage ownerId="user-1" />);
 
         fireEvent.change(
             screen.getByPlaceholderText(

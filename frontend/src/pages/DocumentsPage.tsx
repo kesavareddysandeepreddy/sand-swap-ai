@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useDocuments } from "../state/useDocuments";
 import type { DocumentRecord } from "../types/api";
@@ -51,7 +51,11 @@ const getNumberMeta = (metadata: Record<string, unknown>, key: string): number =
     return 0;
 };
 
-export const DocumentsPage = () => {
+interface DocumentsPageProps {
+    ownerId: string;
+}
+
+export const DocumentsPage = ({ ownerId }: DocumentsPageProps) => {
     const {
         documents,
         selectedDocument,
@@ -65,11 +69,17 @@ export const DocumentsPage = () => {
         selectDocument,
         deleteOne,
         deleteAll,
-    } = useDocuments();
+    } = useDocuments(ownerId);
 
     const [search, setSearch] = useState("");
     const [fileType, setFileType] = useState("");
     const [category, setCategory] = useState("");
+
+    useEffect(() => {
+        setSearch("");
+        setFileType("");
+        setCategory("");
+    }, [ownerId]);
 
     const filtered = useMemo(
         () =>

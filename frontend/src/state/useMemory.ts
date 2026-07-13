@@ -12,7 +12,7 @@ interface Filters {
 
 const DEFAULT_PAGE_SIZE = 25;
 
-export const useMemory = () => {
+export const useMemory = (ownerId: string) => {
     const [records, setRecords] = useState<MemoryRecord[]>([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
@@ -48,6 +48,13 @@ export const useMemory = () => {
     useEffect(() => {
         void refresh();
     }, [refresh]);
+
+    useEffect(() => {
+        setRecords([]);
+        setTotal(0);
+        setPage(1);
+        setError(null);
+    }, [ownerId]);
 
     const update = useCallback(
         async (id: string, payload: MemoryUpdateRequest) => {

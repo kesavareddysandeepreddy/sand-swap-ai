@@ -84,7 +84,7 @@ class DocumentIngestionService:
                         project
                         for project in projects
                         if project.name.strip().lower()
-                        in {"default", "default workspace"}
+                        in {"default", "default workspace", "personal workspace"}
                     ),
                     None,
                 )

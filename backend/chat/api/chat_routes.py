@@ -23,7 +23,7 @@ logger = LoggerFactory.get_logger("ChatRoutes")
 class ChatRequest(BaseModel):
     """Request payload for sending a chat message."""
 
-    user_id: str = Field(..., min_length=1)
+    user_id: str | None = Field(default=None, min_length=1)
     message: str = Field(..., min_length=1)
     conversation_id: str | None = None
 
@@ -43,9 +43,16 @@ async def send_message(
     current_user: CurrentUserDependency,
 ) -> ChatResponse:
     """Send a user message to the chat service."""
+    fallback_user_id = request.user_id
+    if fallback_user_id is None and not current_user.is_authenticated:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Anonymous session id is required",
+        )
+
     effective_user_id = resolve_owner_id(
         current_user,
-        fallback_user_id=request.user_id,
+        fallback_user_id=fallback_user_id,
     )
     try:
         result = await chat_service.send_message(

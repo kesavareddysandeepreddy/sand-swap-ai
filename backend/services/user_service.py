@@ -25,13 +25,29 @@ class UserService:
         self.user_repository = user_repository
         self.project_repository = project_repository
 
-    def create_user(self, *, user_id: str, email: str, display_name: str) -> User:
+    def create_user(
+        self,
+        *,
+        user_id: str,
+        email: str,
+        display_name: str,
+        google_subject_id: str | None = None,
+        avatar_url: str | None = None,
+        auth_provider: str = "local",
+    ) -> User:
         """Create and persist a new active user."""
         existing = self.user_repository.get_by_email(email)
         if existing is not None:
             raise ValueError(f"User with email already exists: {email}")
 
-        user = User.create(user_id=user_id, email=email, display_name=display_name)
+        user = User.create(
+            user_id=user_id,
+            email=email,
+            display_name=display_name,
+            google_subject_id=google_subject_id,
+            avatar_url=avatar_url,
+            auth_provider=auth_provider,
+        )
         create_fn = getattr(self.user_repository, "create", None)
         if callable(create_fn):
             created = create_fn(user)
@@ -140,8 +156,8 @@ class UserService:
         if existing:
             return existing[0]
 
-        default_name = "Default Workspace"
-        default_description = f"Default project workspace for {display_name}"
+        default_name = "Personal Workspace"
+        default_description = f"Personal workspace for {display_name}"
         return self.create_project(
             owner_id=owner_id,
             name=default_name,

@@ -38,5 +38,7 @@ def resolve_owner_id(
     if current_user_id is not None:
         return normalize_user_id(current_user_id)
     if fallback_user_id is not None:
-        return normalize_user_id(fallback_user_id)
+        normalized_fallback = normalize_user_id(fallback_user_id)
+        if normalized_fallback.startswith("anon-"):
+            return normalized_fallback
     return ANONYMOUS_USER_ID

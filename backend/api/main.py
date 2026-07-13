@@ -6,6 +6,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -20,14 +21,21 @@ from backend.core.registry import registry
 
 logger = LoggerFactory.get_logger("API")
 
+load_dotenv()
+
 
 class TokenValidationMiddleware(BaseHTTPMiddleware):
     """Attach request-scoped auth context from optional bearer JWT."""
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
         token_service = app.state.container.resolve("token_service")
+        ownership_service = app.state.container.resolve("ownership_service")
         auth_header = request.headers.get("Authorization", "")
         current_user = CurrentUser.anonymous()
+        ownership_context = {
+            "user_id": "anonymous",
+            "project_id": "default",
+        }
 
         if auth_header.lower().startswith("bearer "):
             token = auth_header[7:].strip()
@@ -35,10 +43,23 @@ class TokenValidationMiddleware(BaseHTTPMiddleware):
                 try:
                     claims = token_service.verify_access_token(token)
                     current_user = CurrentUser.authenticated(claims)
+                    if current_user.user_id is not None:
+                        try:
+                            ownership_context = (
+                                ownership_service.resolve_request_context(
+                                    user_id=current_user.user_id,
+                                )
+                            )
+                        except Exception:  # noqa: BLE001
+                            ownership_context = {
+                                "user_id": current_user.user_id,
+                                "project_id": "default",
+                            }
                 except Exception as exc:  # noqa: BLE001
                     current_user = CurrentUser.anonymous(auth_error=str(exc))
 
         request.state.current_user = current_user
+        request.state.ownership_context = ownership_context
         return await call_next(request)
 
 

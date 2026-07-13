@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useMemory } from "../state/useMemory";
 import type { MemoryRecord } from "../types/api";
@@ -18,7 +18,11 @@ const toEditable = (record: MemoryRecord): EditableValues => ({
     importance: record.importance,
 });
 
-export const MemoryPage = () => {
+interface MemoryPageProps {
+    ownerId: string;
+}
+
+export const MemoryPage = ({ ownerId }: MemoryPageProps) => {
     const {
         records,
         total,
@@ -34,12 +38,19 @@ export const MemoryPage = () => {
         update,
         deleteOne,
         deleteAll,
-    } = useMemory();
+    } = useMemory(ownerId);
 
     const [selected, setSelected] = useState<MemoryRecord | null>(null);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editingValues, setEditingValues] = useState<EditableValues | null>(null);
     const [isMutating, setIsMutating] = useState(false);
+
+    useEffect(() => {
+        setSelected(null);
+        setEditingId(null);
+        setEditingValues(null);
+        setIsMutating(false);
+    }, [ownerId]);
 
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
 

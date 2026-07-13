@@ -13,6 +13,9 @@ class User:
     id: str
     email: str
     display_name: str
+    google_subject_id: str | None
+    avatar_url: str | None
+    auth_provider: str
     created_at: datetime
     updated_at: datetime
     is_active: bool = True
@@ -24,6 +27,9 @@ class User:
         user_id: str,
         email: str,
         display_name: str,
+        google_subject_id: str | None = None,
+        avatar_url: str | None = None,
+        auth_provider: str = "local",
         is_active: bool = True,
     ) -> "User":
         """Build a new active user with initialized timestamps."""
@@ -32,6 +38,9 @@ class User:
             id=user_id,
             email=email,
             display_name=display_name,
+            google_subject_id=google_subject_id,
+            avatar_url=avatar_url,
+            auth_provider=auth_provider,
             created_at=now,
             updated_at=now,
             is_active=is_active,

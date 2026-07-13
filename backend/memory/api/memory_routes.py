@@ -8,9 +8,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from backend.api.dependencies import get_memory_manager
+from backend.api.dependencies import CurrentUserDependency, get_memory_manager
 from backend.memory.core.memory_manager import MemoryManager
 from backend.memory.models.memory_record import MemoryRecord
+from backend.services import resolve_owner_id
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -85,9 +86,11 @@ def list_memories(
     category: str | None = Query(default=None),
     min_importance: float | None = Query(default=None, ge=0.0, le=1.0),
     manager: MemoryManager = Depends(get_memory_manager),
+    current_user: CurrentUserDependency = None,
 ) -> MemoryListResponse:
     """List memories with pagination and filters."""
-    memories = manager.recall_all()
+    owner_id = resolve_owner_id(current_user)
+    memories = [memory for memory in manager.recall_all() if memory.user_id == owner_id]
 
     if search:
         needle = search.lower().strip()
@@ -129,10 +132,12 @@ def list_memories(
 def get_memory(
     memory_id: str,
     manager: MemoryManager = Depends(get_memory_manager),
+    current_user: CurrentUserDependency = None,
 ) -> MemoryItem:
     """Get one memory by id."""
+    owner_id = resolve_owner_id(current_user)
     memory = manager.store.get(memory_id)
-    if memory is None:
+    if memory is None or memory.user_id != owner_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Memory not found",
@@ -145,10 +150,12 @@ def update_memory(
     memory_id: str,
     payload: MemoryUpdateRequest,
     manager: MemoryManager = Depends(get_memory_manager),
+    current_user: CurrentUserDependency = None,
 ) -> MemoryItem:
     """Update editable memory fields."""
+    owner_id = resolve_owner_id(current_user)
     memory = manager.store.get(memory_id)
-    if memory is None:
+    if memory is None or memory.user_id != owner_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Memory not found",
@@ -172,8 +179,17 @@ def update_memory(
 def delete_memory(
     memory_id: str,
     manager: MemoryManager = Depends(get_memory_manager),
+    current_user: CurrentUserDependency = None,
 ) -> None:
     """Delete one memory by id."""
+    owner_id = resolve_owner_id(current_user)
+    memory = manager.store.get(memory_id)
+    if memory is None or memory.user_id != owner_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memory not found",
+        )
+
     deleted = manager.forget(memory_id)
     if not deleted:
         raise HTTPException(
@@ -185,9 +201,13 @@ def delete_memory(
 @router.delete("", response_model=DeleteAllResponse)
 def delete_all_memories(
     manager: MemoryManager = Depends(get_memory_manager),
+    current_user: CurrentUserDependency = None,
 ) -> DeleteAllResponse:
     """Delete all memories from the store."""
-    all_memories = manager.recall_all()
+    owner_id = resolve_owner_id(current_user)
+    all_memories = [
+        memory for memory in manager.recall_all() if memory.user_id == owner_id
+    ]
     deleted = 0
     for memory in all_memories:
         if manager.forget(memory.id):

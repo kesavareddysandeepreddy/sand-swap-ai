@@ -1,8 +1,15 @@
 import type {
     ApiErrorPayload,
+    AuthLoginRequest,
+    AuthTokenPair,
+    AuthUserProfile,
     ChatRequest,
     ChatResponse,
+    GoogleOAuthExchangeRequest,
+    GoogleOAuthStartResponse,
     HealthResponse,
+    LogoutRequest,
+    RefreshTokenRequest,
 } from "../types/api";
 
 export class ApiError extends Error {
@@ -16,11 +23,16 @@ export class ApiError extends Error {
 
 export class ApiClient {
     private readonly baseUrl: string;
+    private authToken: string | null = null;
 
     constructor(
         baseUrl = import.meta.env.VITE_API_BASE_URL ?? "",
     ) {
         this.baseUrl = baseUrl.trim().replace(/\/$/, "");
+    }
+
+    setAuthToken(token: string | null): void {
+        this.authToken = token;
     }
 
     async getHealth(): Promise<HealthResponse> {
@@ -39,12 +51,74 @@ export class ApiClient {
         });
     }
 
+    async login(payload: AuthLoginRequest): Promise<AuthTokenPair> {
+        return this.request<AuthTokenPair>("/auth/login", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async refreshToken(payload: RefreshTokenRequest): Promise<AuthTokenPair> {
+        return this.request<AuthTokenPair>("/auth/refresh", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async logout(payload: LogoutRequest): Promise<{ status: string }> {
+        return this.request<{ status: string }>("/auth/logout", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async getCurrentUser(): Promise<AuthUserProfile> {
+        return this.request<AuthUserProfile>("/auth/me", {
+            method: "GET",
+        });
+    }
+
+    async exchangeGoogleCode(
+        payload: GoogleOAuthExchangeRequest
+    ): Promise<AuthTokenPair> {
+        return this.request<AuthTokenPair>("/auth/oauth/google/exchange", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async startGoogleOAuth(): Promise<GoogleOAuthStartResponse> {
+        return this.request<GoogleOAuthStartResponse>("/auth/oauth/google/start", {
+            method: "GET",
+        });
+    }
+
     private async request<T>(path: string, init: RequestInit): Promise<T> {
         const endpoint = this.buildEndpoint(path);
         let response: Response;
+        const headers = new Headers(init.headers);
+        if (this.authToken) {
+            headers.set("Authorization", `Bearer ${this.authToken}`);
+        }
+        const requestInit: RequestInit = {
+            ...init,
+            headers,
+        };
 
         try {
-            response = await fetch(endpoint, init);
+            response = await fetch(endpoint, requestInit);
         } catch {
             throw new ApiError("Unable to connect to the SandSwap API.", 0);
         }

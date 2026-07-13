@@ -20,6 +20,46 @@ export interface ApiErrorPayload {
     detail?: string;
 }
 
+export interface AuthLoginRequest {
+    email: string;
+    password: string;
+}
+
+export interface AuthTokenPair {
+    access_token: string;
+    refresh_token: string;
+    token_type: string;
+}
+
+export interface RefreshTokenRequest {
+    refresh_token: string;
+}
+
+export interface LogoutRequest {
+    refresh_token: string | null;
+}
+
+export interface GoogleOAuthExchangeRequest {
+    code: string;
+    redirect_uri: string;
+}
+
+export interface AuthUserProfile {
+    user_id: string;
+    email: string;
+    display_name: string;
+    project_id?: string | null;
+    avatar_url?: string | null;
+    auth_provider?: string | null;
+    google_subject_id?: string | null;
+}
+
+export interface GoogleOAuthStartResponse {
+    provider: string;
+    authorization_url: string;
+    state: string;
+}
+
 export interface MemoryRecord {
     id: string;
     user_id: string;

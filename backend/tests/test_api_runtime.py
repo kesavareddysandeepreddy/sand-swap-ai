@@ -7,6 +7,14 @@ from fastapi.testclient import TestClient
 
 from backend.api.dependencies import get_chat_service
 from backend.api.main import app
+from backend.auth.auth_service import AuthService
+from backend.auth.password_hasher import PasswordHasher
+from backend.auth.token_service import TokenService
+from backend.persistence.sqlite_enterprise_repositories import (
+    SQLiteProjectRepository,
+    SQLiteUserRepository,
+)
+from backend.services.user_service import UserService
 
 
 class FakeChatService:
@@ -23,6 +31,69 @@ class FakeChatService:
             "conversation_id": conversation_id or "default-conversation",
             "message_id": "fake-message",
         }
+
+
+class FakeOwnershipService:
+    def __init__(self) -> None:
+        self.project_repository = type("ProjectRepo", (), {})()
+
+    def list_projects_for_user(self, user_id: str) -> list[object]:
+        _ = user_id
+        return []
+
+    def resolve_request_context(self, *, user_id: str) -> dict[str, str]:
+        _ = user_id
+        return {"user_id": "user-1", "project_id": "workspace-user-1"}
+
+
+def test_google_user_provisioning_creates_personal_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    enterprise_db = tmp_path / "enterprise.db"
+    user_repository = SQLiteUserRepository(db_path=str(enterprise_db))
+    project_repository = SQLiteProjectRepository(db_path=str(enterprise_db))
+    user_service = UserService(
+        user_repository=user_repository,
+        project_repository=project_repository,
+    )
+    auth_service = AuthService(
+        user_service=user_service,
+        password_hasher=PasswordHasher(),
+        token_service=TokenService(secret="test-secret"),
+    )
+
+    monkeypatch.setattr(
+        AuthService,
+        "verify_google_id_token",
+        lambda self, *, id_token: {
+            "sub": "google-sub-123",
+            "email": "alice@example.com",
+            "name": "Alice Example",
+            "picture": "https://example.com/avatar.png",
+        },
+    )
+
+    user = auth_service.authenticate_google_id_token(id_token="id-token")
+
+    assert user.email == "alice@example.com"
+    assert user.display_name == "Alice Example"
+    assert user.google_subject_id == "google-sub-123"
+    assert user.avatar_url == "https://example.com/avatar.png"
+    assert user.auth_provider == "google"
+
+    stored_user = user_repository.get_by_email("alice@example.com")
+    assert stored_user is not None
+    assert stored_user.google_subject_id == "google-sub-123"
+    assert stored_user.avatar_url == "https://example.com/avatar.png"
+    assert stored_user.auth_provider == "google"
+
+    projects = project_repository.list_by_owner(user.id)
+    assert len(projects) == 1
+    assert projects[0].name == "Personal Workspace"
+
+    user_repository.close()
+    project_repository.close()
 
 
 def test_health_endpoint(
@@ -85,3 +156,53 @@ def test_chat_endpoint(
     assert response.json()["response"] == "echo:hello"
     assert response.json()["conversation_id"] == "conv-1"
     assert response.json()["memories_saved"] == 0
+
+
+def test_chat_requires_anonymous_session_id_when_unauthenticated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORY_DB_PATH", str(tmp_path / "chat-anon-memory.db"))
+    monkeypatch.setenv("RAG_DB_PATH", str(tmp_path / "chat-anon-rag"))
+
+    app.dependency_overrides[get_chat_service] = lambda: FakeChatService()
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/chat",
+                json={
+                    "message": "hello",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Anonymous session id is required"
+
+
+def test_chat_ignores_forged_user_id_for_authenticated_requests(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORY_DB_PATH", str(tmp_path / "chat-auth-memory.db"))
+    monkeypatch.setenv("RAG_DB_PATH", str(tmp_path / "chat-auth-rag"))
+
+    app.dependency_overrides[get_chat_service] = lambda: FakeChatService()
+    try:
+        with TestClient(app) as client:
+            token_service = app.state.container.resolve("token_service")
+            token = token_service.create_access_token("auth-user", "auth@example.com")
+            response = client.post(
+                "/chat",
+                json={
+                    "user_id": "forged-user",
+                    "message": "hello",
+                },
+                headers={"Authorization": f"Bearer {token}"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["conversation_id"] == "default-conversation"

@@ -4,7 +4,7 @@ import { ApiError } from "../api/client";
 import { documentsApi, type UploadDocumentParams } from "../api/documents";
 import type { DocumentRecord, RetrievedChunk } from "../types/api";
 
-export const useDocuments = () => {
+export const useDocuments = (ownerId: string) => {
     const [documents, setDocuments] = useState<DocumentRecord[]>([]);
     const [selectedDocument, setSelectedDocument] = useState<DocumentRecord | null>(null);
     const [selectedChunks, setSelectedChunks] = useState<RetrievedChunk[]>([]);
@@ -28,6 +28,13 @@ export const useDocuments = () => {
     useEffect(() => {
         void refresh();
     }, [refresh]);
+
+    useEffect(() => {
+        setDocuments([]);
+        setSelectedDocument(null);
+        setSelectedChunks([]);
+        setError(null);
+    }, [ownerId]);
 
     const upload = useCallback(async (params: UploadDocumentParams) => {
         setIsUploading(true);

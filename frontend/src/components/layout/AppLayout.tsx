@@ -1,11 +1,13 @@
 import { Outlet } from "react-router-dom";
 
 import type { HealthResponse } from "../../types/api";
+import type { ReturnTypeUseAuth } from "../../types/auth";
 import type { ConversationState } from "../../types/chat";
 import { ConversationSidebar } from "../chat/ConversationSidebar";
 import { Header } from "./Header";
 
 interface AppLayoutProps {
+    auth: ReturnTypeUseAuth;
     health: HealthResponse | null;
     healthLoading: boolean;
     healthError: string | null;
@@ -18,6 +20,7 @@ interface AppLayoutProps {
 }
 
 export const AppLayout = ({
+    auth,
     health,
     healthLoading,
     healthError,
@@ -30,7 +33,17 @@ export const AppLayout = ({
 }: AppLayoutProps) => {
     return (
         <div className="app-shell">
-            <Header health={health} healthLoading={healthLoading} healthError={healthError} />
+            <Header
+                health={health}
+                healthLoading={healthLoading}
+                healthError={healthError}
+                isAuthenticated={auth.isAuthenticated}
+                displayName={auth.profile?.display_name ?? null}
+                email={auth.profile?.email ?? null}
+                avatarUrl={auth.profile?.avatar_url ?? null}
+                onGoogleSignIn={auth.signInWithGooglePopup}
+                onLogout={() => void auth.logout()}
+            />
             <div className="content-grid">
                 <ConversationSidebar
                     conversations={conversations}

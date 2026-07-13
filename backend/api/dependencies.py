@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.auth import (
@@ -32,6 +32,10 @@ from backend.memory.core.memory_manager import MemoryManager
 from backend.memory.extractors.llm_memory_extractor import LLMMemoryExtractor
 from backend.memory.stores.sqlite.sqlite_store import SQLiteMemoryStore
 from backend.persistence.sqlite_enterprise_repositories import (
+    SQLiteAgentOwnerRepository,
+    SQLiteConversationOwnerRepository,
+    SQLiteDocumentOwnerRepository,
+    SQLiteMemoryOwnerRepository,
     SQLiteProjectRepository,
     SQLiteUserRepository,
 )
@@ -47,6 +51,7 @@ from backend.rag.infrastructure.sqlite_document_repository import (
 from backend.rag.parsers.factory import ParserFactory
 from backend.rag.retrievers.semantic_retriever import SemanticRetriever
 from backend.rag.vectorstores.sqlite_vector_store import SQLiteVectorStore
+from backend.services.ownership_service import OwnershipService
 from backend.services.user_service import UserService
 
 logger = LoggerFactory.get_logger("RuntimeDependencies")
@@ -153,6 +158,60 @@ def get_auth_service(
     return auth_service
 
 
+def get_ownership_service() -> OwnershipService:
+    """Resolve the shared ownership service for enterprise context resolution."""
+    container = get_container()
+    if container.exists("ownership_service"):
+        return container.resolve("ownership_service")
+
+    enterprise_db_path = _get_enterprise_db_path()
+    ownership_service = OwnershipService(
+        project_repository=SQLiteProjectRepository(db_path=enterprise_db_path),
+        document_owner_repository=SQLiteDocumentOwnerRepository(
+            db_path=enterprise_db_path
+        ),
+        conversation_owner_repository=SQLiteConversationOwnerRepository(
+            db_path=enterprise_db_path
+        ),
+        memory_owner_repository=SQLiteMemoryOwnerRepository(db_path=enterprise_db_path),
+        agent_owner_repository=SQLiteAgentOwnerRepository(db_path=enterprise_db_path),
+    )
+    container.register("ownership_service", ownership_service)
+    return ownership_service
+
+
+def get_request_ownership_context(
+    request: Request,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    ownership_service: Annotated[OwnershipService, Depends(get_ownership_service)],
+) -> dict[str, str]:
+    """Resolve request ownership context with anonymous compatibility."""
+    state_context = getattr(request.state, "ownership_context", None)
+    if isinstance(state_context, dict):
+        user_id = state_context.get("user_id")
+        project_id = state_context.get("project_id")
+        if isinstance(user_id, str) and isinstance(project_id, str):
+            return {
+                "user_id": user_id,
+                "project_id": project_id,
+            }
+
+    if current_user.is_authenticated and current_user.user_id is not None:
+        try:
+            return ownership_service.resolve_request_context(
+                user_id=current_user.user_id,
+            )
+        except Exception:  # noqa: BLE001
+            return {
+                "user_id": current_user.user_id,
+                "project_id": "default",
+            }
+    return {
+        "user_id": "anonymous",
+        "project_id": "default",
+    }
+
+
 def _resolve_bearer_token(
     credentials: HTTPAuthorizationCredentials | None,
 ) -> str | None:
@@ -166,6 +225,7 @@ def _resolve_bearer_token(
 
 
 def get_current_user(
+    request: Request,
     credentials: Annotated[
         HTTPAuthorizationCredentials | None,
         Depends(http_bearer),
@@ -177,6 +237,10 @@ def get_current_user(
     Invalid or missing credentials fall back to an anonymous context to preserve
     current API compatibility.
     """
+    state_user = getattr(request.state, "current_user", None)
+    if isinstance(state_user, CurrentUser):
+        return state_user
+
     token = _resolve_bearer_token(credentials)
     if token is None:
         return CurrentUser.anonymous()
@@ -210,6 +274,7 @@ def require_authenticated_user(
 
 
 def token_validation_middleware_user(
+    request: Request,
     credentials: Annotated[
         HTTPAuthorizationCredentials | None,
         Depends(http_bearer),
@@ -217,7 +282,7 @@ def token_validation_middleware_user(
     token_service: Annotated[TokenService, Depends(get_token_service)],
 ) -> CurrentUser:
     """Middleware-oriented token resolver that preserves anonymous fallback."""
-    return get_current_user(credentials, token_service)
+    return get_current_user(request, credentials, token_service)
 
 
 def register_runtime_dependencies(container: Container | None = None) -> Container:
@@ -228,6 +293,39 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     config_manager = ConfigManager()
     token_service = TokenService()
     default_model = str(config_manager.get("llm.default_model", "llama3"))
+    enterprise_db_path = _get_enterprise_db_path()
+
+    enterprise_user_repository = SQLiteUserRepository(db_path=enterprise_db_path)
+    enterprise_project_repository = SQLiteProjectRepository(db_path=enterprise_db_path)
+    enterprise_document_owner_repository = SQLiteDocumentOwnerRepository(
+        db_path=enterprise_db_path
+    )
+    enterprise_conversation_owner_repository = SQLiteConversationOwnerRepository(
+        db_path=enterprise_db_path
+    )
+    enterprise_memory_owner_repository = SQLiteMemoryOwnerRepository(
+        db_path=enterprise_db_path
+    )
+    enterprise_agent_owner_repository = SQLiteAgentOwnerRepository(
+        db_path=enterprise_db_path
+    )
+    user_service = UserService(
+        user_repository=enterprise_user_repository,
+        project_repository=enterprise_project_repository,
+    )
+    password_hasher = PasswordHasher()
+    auth_service = AuthService(
+        user_service=user_service,
+        password_hasher=password_hasher,
+        token_service=token_service,
+    )
+    ownership_service = OwnershipService(
+        project_repository=enterprise_project_repository,
+        document_owner_repository=enterprise_document_owner_repository,
+        conversation_owner_repository=enterprise_conversation_owner_repository,
+        memory_owner_repository=enterprise_memory_owner_repository,
+        agent_owner_repository=enterprise_agent_owner_repository,
+    )
 
     memory_db_path = _get_memory_db_path()
     rag_document_db_path = _get_rag_document_db_path()
@@ -262,6 +360,7 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         embedding_provider=embedding_provider,
         vector_store=vector_store,
         storage_dir=str(Path("data/documents").resolve()),
+        ownership_service=ownership_service,
         default_chunk_size=int(config_manager.get("rag.chunk_size", 18)),
         default_overlap=int(config_manager.get("rag.chunk_overlap", 4)),
     )
@@ -285,6 +384,7 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         ollama_client=ollama_client,
         memory_manager=memory_manager,
         memory_extractor=memory_extractor,
+        ownership_service=ownership_service,
     )
     logger.info(
         "MemoryManager identity runtime=%s chat_service=%s extractor=%s same_chat=%s same_extractor=%s",
@@ -298,6 +398,30 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     shared_container.register("settings", settings)
     shared_container.register("config_manager", config_manager)
     shared_container.register("token_service", token_service)
+    shared_container.register("enterprise_user_repository", enterprise_user_repository)
+    shared_container.register(
+        "enterprise_project_repository", enterprise_project_repository
+    )
+    shared_container.register(
+        "enterprise_document_owner_repository",
+        enterprise_document_owner_repository,
+    )
+    shared_container.register(
+        "enterprise_conversation_owner_repository",
+        enterprise_conversation_owner_repository,
+    )
+    shared_container.register(
+        "enterprise_memory_owner_repository",
+        enterprise_memory_owner_repository,
+    )
+    shared_container.register(
+        "enterprise_agent_owner_repository",
+        enterprise_agent_owner_repository,
+    )
+    shared_container.register("user_service", user_service)
+    shared_container.register("password_hasher", password_hasher)
+    shared_container.register("auth_service", auth_service)
+    shared_container.register("ownership_service", ownership_service)
     shared_container.register("memory_store", memory_store)
     shared_container.register("memory_manager", memory_manager)
     shared_container.register("conversation_store", conversation_store)
@@ -340,6 +464,10 @@ RequiredCurrentUserDependency = Annotated[
 ProtectedEndpointDependency = Annotated[
     CurrentUser,
     Depends(require_authenticated_user),
+]
+OwnershipContextDependency = Annotated[
+    dict[str, str],
+    Depends(get_request_ownership_context),
 ]
 
 

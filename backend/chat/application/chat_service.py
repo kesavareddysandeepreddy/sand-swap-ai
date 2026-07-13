@@ -58,7 +58,8 @@ class ChatService(BaseService):
                 (
                     project
                     for project in projects
-                    if project.name.strip().lower() in {"default", "default workspace"}
+                    if project.name.strip().lower()
+                    in {"default", "default workspace", "personal workspace"}
                 ),
                 None,
             )

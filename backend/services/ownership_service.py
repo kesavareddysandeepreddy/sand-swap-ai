@@ -161,3 +161,37 @@ class OwnershipService:
     def list_projects_for_user(self, user_id: str) -> list[Project]:
         """List all projects owned by a user."""
         return self.project_repository.list_by_owner(user_id)
+
+    def get_default_project_for_user(self, user_id: str) -> Project:
+        """Return or create a default workspace project for a user."""
+        projects = self.list_projects_for_user(user_id)
+        if projects:
+            default_project = next(
+                (
+                    project
+                    for project in projects
+                    if project.name.strip().lower()
+                    in {"default", "default workspace", "personal workspace"}
+                ),
+                None,
+            )
+            return default_project or projects[0]
+
+        return self.assign_project_owner(
+            project_id=f"workspace-{user_id}",
+            user_id=user_id,
+            name="Default Workspace",
+            description="Default workspace for authenticated user",
+        )
+
+    def resolve_request_context(
+        self,
+        *,
+        user_id: str,
+    ) -> dict[str, str]:
+        """Resolve per-request ownership context for authenticated flows."""
+        default_project = self.get_default_project_for_user(user_id)
+        return {
+            "user_id": user_id,
+            "project_id": default_project.id,
+        }

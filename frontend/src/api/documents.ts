@@ -1,3 +1,4 @@
+import { loadAuthSession } from "../state/authStorage";
 import type {
     DocumentRecord,
     RetrievalResponse,
@@ -25,9 +26,18 @@ const getBaseUrl = (): string => {
 const request = async <T>(path: string, init: RequestInit): Promise<T> => {
     const endpoint = `${getBaseUrl()}${path}`;
     let response: Response;
+    const headers = new Headers(init.headers);
+    const session = loadAuthSession();
+    if (session?.accessToken) {
+        headers.set("Authorization", `Bearer ${session.accessToken}`);
+    }
+    const requestInit: RequestInit = {
+        ...init,
+        headers,
+    };
 
     try {
-        response = await fetch(endpoint, init);
+        response = await fetch(endpoint, requestInit);
     } catch {
         throw new ApiError("Unable to connect to the SandSwap API.", 0);
     }

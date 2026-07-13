@@ -1,6 +1,6 @@
 import type { ConversationState } from "../types/chat";
 
-const STORAGE_KEY = "sand-swap-chat-state-v1";
+const STORAGE_KEY_PREFIX = "sand-swap-chat-state-v1";
 
 interface PersistedChatState {
     conversations: ConversationState[];
@@ -38,9 +38,10 @@ const dedupeConversations = (
     return unique;
 };
 
-export const loadChatState = (): PersistedChatState => {
+export const loadChatState = (ownerId: string): PersistedChatState => {
     try {
-        const raw = window.localStorage.getItem(STORAGE_KEY);
+        const storageKey = `${STORAGE_KEY_PREFIX}:${ownerId}`;
+        const raw = window.localStorage.getItem(storageKey);
         if (!raw) {
             return { conversations: [], activeConversationId: null };
         }
@@ -69,6 +70,7 @@ export const loadChatState = (): PersistedChatState => {
 };
 
 export const persistChatState = (
+    ownerId: string,
     conversations: ConversationState[],
     activeConversationId: string | null
 ): void => {
@@ -82,5 +84,11 @@ export const persistChatState = (
         activeConversationId: hasActiveConversation ? activeConversationId : null,
     };
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    const storageKey = `${STORAGE_KEY_PREFIX}:${ownerId}`;
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+};
+
+export const clearChatState = (ownerId: string): void => {
+    const storageKey = `${STORAGE_KEY_PREFIX}:${ownerId}`;
+    window.localStorage.removeItem(storageKey);
 };

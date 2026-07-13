@@ -5,11 +5,14 @@ import { ChatPage } from "./pages/ChatPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { RetrievalInspectorPage } from "./pages/RetrievalInspectorPage";
+import { useAuth } from "./state/useAuth";
 import { useChat } from "./state/useChat";
 import { useHealth } from "./state/useHealth";
 
 const App = () => {
+    const auth = useAuth();
     const { health, isLoading: healthLoading, error: healthError } = useHealth();
+    const effectiveUserId = auth.effectiveUserId;
     const {
         conversations,
         activeConversation,
@@ -21,7 +24,7 @@ const App = () => {
         startNewConversation,
         renameConversation,
         deleteConversation,
-    } = useChat();
+    } = useChat(effectiveUserId);
 
     return (
         <Routes>
@@ -29,6 +32,7 @@ const App = () => {
                 path="/"
                 element={
                     <AppLayout
+                        auth={auth}
                         health={health}
                         healthLoading={healthLoading}
                         healthError={healthError}
@@ -53,10 +57,11 @@ const App = () => {
                         />
                     }
                 />
-                <Route path="memory" element={<MemoryPage />} />
-                <Route path="documents" element={<DocumentsPage />} />
-                <Route path="inspector" element={<RetrievalInspectorPage />} />
+                <Route path="memory" element={<MemoryPage ownerId={effectiveUserId} />} />
+                <Route path="documents" element={<DocumentsPage ownerId={effectiveUserId} />} />
+                <Route path="inspector" element={<RetrievalInspectorPage ownerId={effectiveUserId} />} />
             </Route>
+            <Route path="*" element={<Navigate to="/chat" replace />} />
         </Routes>
     );
 };
