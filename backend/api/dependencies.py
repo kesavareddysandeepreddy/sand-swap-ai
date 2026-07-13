@@ -31,6 +31,10 @@ from backend.llm.client import OllamaClient
 from backend.memory.core.memory_manager import MemoryManager
 from backend.memory.extractors.llm_memory_extractor import LLMMemoryExtractor
 from backend.memory.stores.sqlite.sqlite_store import SQLiteMemoryStore
+from backend.persistence.sqlite_enterprise_repositories import (
+    SQLiteProjectRepository,
+    SQLiteUserRepository,
+)
 from backend.rag.application.document_service import (
     DocumentIngestionService,
     DocumentRetrievalService,
@@ -91,6 +95,12 @@ def get_token_service() -> TokenService:
     return token_service
 
 
+def _get_enterprise_db_path() -> str:
+    """Return the configured SQLite path for enterprise auth data."""
+    raw_path = os.getenv("ENTERPRISE_DB_PATH", "data/enterprise/enterprise.db")
+    return str(Path(raw_path).resolve())
+
+
 class _InMemoryUserRepository:
     """Minimal user repository used for auth API integration."""
 
@@ -121,8 +131,13 @@ def get_auth_service(
     if container.exists("auth_service"):
         return container.resolve("auth_service")
 
-    repository = _InMemoryUserRepository()
-    user_service = UserService(user_repository=repository)
+    enterprise_db_path = _get_enterprise_db_path()
+    user_repository = SQLiteUserRepository(db_path=enterprise_db_path)
+    project_repository = SQLiteProjectRepository(db_path=enterprise_db_path)
+    user_service = UserService(
+        user_repository=user_repository,
+        project_repository=project_repository,
+    )
     password_hasher = PasswordHasher()
     auth_service = AuthService(
         user_service=user_service,
@@ -130,7 +145,8 @@ def get_auth_service(
         token_service=token_service,
     )
 
-    container.register("user_repository", repository)
+    container.register("enterprise_user_repository", user_repository)
+    container.register("enterprise_project_repository", project_repository)
     container.register("user_service", user_service)
     container.register("password_hasher", password_hasher)
     container.register("auth_service", auth_service)
@@ -184,6 +200,24 @@ def get_authenticated_user(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Authentication required",
     )
+
+
+def require_authenticated_user(
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> CurrentUser:
+    """Helper dependency for protected endpoints requiring login."""
+    return get_authenticated_user(current_user)
+
+
+def token_validation_middleware_user(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Depends(http_bearer),
+    ],
+    token_service: Annotated[TokenService, Depends(get_token_service)],
+) -> CurrentUser:
+    """Middleware-oriented token resolver that preserves anonymous fallback."""
+    return get_current_user(credentials, token_service)
 
 
 def register_runtime_dependencies(container: Container | None = None) -> Container:
@@ -302,6 +336,10 @@ AuthServiceDependency = Annotated[AuthService, Depends(get_auth_service)]
 RequiredCurrentUserDependency = Annotated[
     CurrentUser,
     Depends(get_authenticated_user),
+]
+ProtectedEndpointDependency = Annotated[
+    CurrentUser,
+    Depends(require_authenticated_user),
 ]
 
 

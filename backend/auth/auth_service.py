@@ -69,6 +69,34 @@ class AuthService:
             expires_minutes=expires_minutes,
         )
 
+    def issue_token_pair(self, user: User, expires_minutes: int = 60) -> dict[str, str]:
+        """Issue an access and refresh token pair for an authenticated user."""
+        access_token = self.issue_token(user=user, expires_minutes=expires_minutes)
+        refresh_token = self.token_service.create_refresh_token(
+            user_id=user.id,
+            email=user.email,
+        )
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+        }
+
+    def refresh_access_token(
+        self, refresh_token: str, expires_minutes: int = 60
+    ) -> str:
+        """Rotate a refresh token into a new access token."""
+        claims = self.token_service.verify_refresh_token(refresh_token)
+        user = self.get_user(str(claims["sub"]))
+        if user is None or not user.is_active:
+            raise ValueError("User not found or inactive")
+        return self.issue_token(user=user, expires_minutes=expires_minutes)
+
+    def logout(self, refresh_token: str | None = None) -> None:
+        """Invalidate refresh token state for logout semantics."""
+        if not refresh_token:
+            return
+        self.token_service.revoke_refresh_token(refresh_token)
+
     def validate_token(self, token: str) -> dict[str, Any]:
         """Validate a JWT access token and return claims."""
         return self.token_service.verify_access_token(token)

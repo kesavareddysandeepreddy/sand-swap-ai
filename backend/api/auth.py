@@ -41,7 +41,42 @@ class LoginResponse(BaseModel):
     """Response payload for login."""
 
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
+
+
+class RefreshTokenRequest(BaseModel):
+    """Request payload for refresh token exchange."""
+
+    refresh_token: str = Field(..., min_length=1)
+
+
+class LogoutRequest(BaseModel):
+    """Request payload for logout."""
+
+    refresh_token: str | None = None
+
+
+class OAuthStartResponse(BaseModel):
+    """Response payload for OAuth authorization start."""
+
+    provider: str
+    authorization_url: str
+
+
+class OAuthExchangeRequest(BaseModel):
+    """Request payload for OAuth code exchange foundation."""
+
+    code: str = Field(..., min_length=1)
+    redirect_uri: str | None = None
+
+
+class OAuthExchangeResponse(BaseModel):
+    """Response payload for OAuth foundation state."""
+
+    provider: str
+    status: str
+    detail: str
 
 
 class CurrentUserResponse(BaseModel):
@@ -91,8 +126,46 @@ def login(
             detail="Invalid email or password",
         )
 
-    token = auth_service.issue_token(user)
-    return LoginResponse(access_token=token)
+    tokens = auth_service.issue_token_pair(user)
+    return LoginResponse(
+        access_token=tokens["access_token"],
+        refresh_token=tokens["refresh_token"],
+    )
+
+
+@router.post("/refresh", response_model=LoginResponse)
+def refresh_token(
+    payload: RefreshTokenRequest,
+    auth_service: AuthServiceDependency,
+) -> LoginResponse:
+    """Exchange refresh token for a new access token."""
+    try:
+        access_token = auth_service.refresh_access_token(payload.refresh_token)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        ) from exc
+
+    return LoginResponse(
+        access_token=access_token,
+        refresh_token=payload.refresh_token,
+    )
+
+
+@router.post("/logout")
+def logout(
+    payload: LogoutRequest,
+    auth_service: AuthServiceDependency,
+) -> dict[str, str]:
+    """Invalidate refresh token state for logout semantics."""
+    auth_service.logout(payload.refresh_token)
+    return {"status": "ok"}
 
 
 @router.get("/me", response_model=CurrentUserResponse)
@@ -119,4 +192,33 @@ def me(
         user_id=user.id,
         email=user.email,
         display_name=user.display_name,
+    )
+
+
+@router.get("/profile", response_model=CurrentUserResponse)
+def profile(
+    current_user: RequiredCurrentUserDependency,
+    auth_service: AuthServiceDependency,
+) -> CurrentUserResponse:
+    """Alias endpoint for current authenticated profile."""
+    return me(current_user=current_user, auth_service=auth_service)
+
+
+@router.get("/oauth/google/start", response_model=OAuthStartResponse)
+def oauth_google_start() -> OAuthStartResponse:
+    """Return Google OAuth authorization URL foundation placeholder."""
+    return OAuthStartResponse(
+        provider="google",
+        authorization_url="https://accounts.google.com/o/oauth2/v2/auth",
+    )
+
+
+@router.post("/oauth/google/exchange", response_model=OAuthExchangeResponse)
+def oauth_google_exchange(payload: OAuthExchangeRequest) -> OAuthExchangeResponse:
+    """Google OAuth code exchange foundation endpoint."""
+    _ = payload
+    return OAuthExchangeResponse(
+        provider="google",
+        status="not_implemented",
+        detail="Google OAuth exchange foundation is configured but not active.",
     )

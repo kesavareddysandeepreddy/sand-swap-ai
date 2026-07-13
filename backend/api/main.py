@@ -6,17 +6,40 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.api.dependencies import register_runtime_dependencies
 from backend.api.router import router as api_router
+from backend.auth import CurrentUser
 from backend.core.container.container import Container
 from backend.core.lifecycle.lifecycle_manager import LifecycleManager
 from backend.core.logging.logger import LoggerFactory
 from backend.core.registry import registry
 
 logger = LoggerFactory.get_logger("API")
+
+
+class TokenValidationMiddleware(BaseHTTPMiddleware):
+    """Attach request-scoped auth context from optional bearer JWT."""
+
+    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        token_service = app.state.container.resolve("token_service")
+        auth_header = request.headers.get("Authorization", "")
+        current_user = CurrentUser.anonymous()
+
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header[7:].strip()
+            if token:
+                try:
+                    claims = token_service.verify_access_token(token)
+                    current_user = CurrentUser.authenticated(claims)
+                except Exception as exc:  # noqa: BLE001
+                    current_user = CurrentUser.anonymous(auth_error=str(exc))
+
+        request.state.current_user = current_user
+        return await call_next(request)
 
 
 def _get_cors_origins() -> list[str]:
@@ -72,5 +95,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(TokenValidationMiddleware)
 
 app.include_router(api_router)
