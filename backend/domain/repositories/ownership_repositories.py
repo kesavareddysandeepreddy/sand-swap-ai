@@ -37,6 +37,11 @@ class ProjectRepository(ABC):
     """Persistence contract for user-owned projects."""
 
     @abstractmethod
+    def create(self, project: Project) -> Project:
+        """Create a new project record."""
+        raise NotImplementedError
+
+    @abstractmethod
     def save(self, project: Project) -> None:
         """Create or update a project record."""
         raise NotImplementedError
@@ -44,6 +49,16 @@ class ProjectRepository(ABC):
     @abstractmethod
     def get_by_id(self, project_id: str) -> Project | None:
         """Fetch a project by identifier."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def update(self, project: Project) -> Project:
+        """Update an existing project record."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def delete(self, project_id: str) -> bool:
+        """Delete a project by identifier."""
         raise NotImplementedError
 
     @abstractmethod
