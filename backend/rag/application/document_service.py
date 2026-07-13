@@ -188,6 +188,9 @@ class DocumentIngestionService:
         now = datetime.now(UTC)
         resolved_owner_id = self._resolve_owner_id(owner_id)
         resolved_project_id = self._resolve_project_id(resolved_owner_id, project)
+        ownership_project_id = self._resolve_default_project_for_owner(
+            resolved_owner_id
+        )
         document = DocumentRecord(
             id=document_id,
             name=safe_name,
@@ -213,12 +216,6 @@ class DocumentIngestionService:
             },
         )
         self.repository.save(document)
-        resolved_project_id = self._ensure_document_ownership(
-            document_id=document.id,
-            owner_id=resolved_owner_id,
-            project_id=resolved_project_id,
-        )
-        document.metadata["project"] = resolved_project_id
 
         try:
             parser = self.parser_factory.resolve(safe_name)
@@ -266,6 +263,14 @@ class DocumentIngestionService:
             document.metadata["processing_time_ms"] = elapsed_ms
             document.metadata["processing_status"] = "completed"
             document.metadata["owner_id"] = resolved_owner_id
+            document.metadata["project"] = resolved_project_id
+            document.updated_at = datetime.now(UTC)
+            self.repository.update(document)
+            resolved_project_id = self._ensure_document_ownership(
+                document_id=document.id,
+                owner_id=resolved_owner_id,
+                project_id=ownership_project_id,
+            )
             document.metadata["project"] = resolved_project_id
             document.updated_at = datetime.now(UTC)
             self.repository.update(document)
