@@ -1,0 +1,163 @@
+"""Service layer for enterprise ownership assignments and lookups."""
+
+from __future__ import annotations
+
+from backend.domain.entities.ownership import (
+    AgentOwner,
+    ConversationOwner,
+    DocumentOwner,
+    MemoryOwner,
+)
+from backend.domain.entities.project import Project
+from backend.domain.repositories.ownership_repositories import (
+    AgentOwnerRepository,
+    ConversationOwnerRepository,
+    DocumentOwnerRepository,
+    MemoryOwnerRepository,
+    ProjectRepository,
+)
+
+
+class OwnershipService:
+    """Coordinates ownership assignments across enterprise resources."""
+
+    def __init__(
+        self,
+        *,
+        project_repository: ProjectRepository,
+        document_owner_repository: DocumentOwnerRepository,
+        conversation_owner_repository: ConversationOwnerRepository,
+        memory_owner_repository: MemoryOwnerRepository,
+        agent_owner_repository: AgentOwnerRepository,
+    ) -> None:
+        self.project_repository = project_repository
+        self.document_owner_repository = document_owner_repository
+        self.conversation_owner_repository = conversation_owner_repository
+        self.memory_owner_repository = memory_owner_repository
+        self.agent_owner_repository = agent_owner_repository
+
+    def assign_project_owner(
+        self,
+        *,
+        project_id: str,
+        user_id: str,
+        name: str | None = None,
+        description: str = "",
+    ) -> Project:
+        """Assign a project to a user, creating the project when missing."""
+        existing = self.project_repository.get_by_id(project_id)
+
+        if existing is None:
+            project = Project.create(
+                project_id=project_id,
+                owner_id=user_id,
+                name=name or "Workspace",
+                description=description,
+            )
+            create_fn = getattr(self.project_repository, "create", None)
+            if callable(create_fn):
+                return create_fn(project)
+            self.project_repository.save(project)
+            return project
+
+        if (
+            existing.owner_id == user_id
+            and (name is None or name == existing.name)
+            and description == existing.description
+        ):
+            return existing
+
+        updated = Project(
+            id=existing.id,
+            owner_id=user_id,
+            name=name if name is not None else existing.name,
+            description=description if description else existing.description,
+            created_at=existing.created_at,
+        )
+        update_fn = getattr(self.project_repository, "update", None)
+        if callable(update_fn):
+            return update_fn(updated)
+        self.project_repository.save(updated)
+        return updated
+
+    def assign_document_owner(
+        self,
+        *,
+        document_id: str,
+        user_id: str,
+        project_id: str,
+    ) -> DocumentOwner:
+        """Assign ownership metadata for a document."""
+        relation = DocumentOwner(
+            document_id=document_id,
+            user_id=user_id,
+            project_id=project_id,
+        )
+        self.document_owner_repository.save(relation)
+        return relation
+
+    def assign_conversation_owner(
+        self,
+        *,
+        conversation_id: str,
+        user_id: str,
+    ) -> ConversationOwner:
+        """Assign ownership metadata for a conversation."""
+        relation = ConversationOwner(conversation_id=conversation_id, user_id=user_id)
+        self.conversation_owner_repository.save(relation)
+        return relation
+
+    def assign_memory_owner(
+        self,
+        *,
+        memory_id: str,
+        user_id: str,
+        project_id: str,
+    ) -> MemoryOwner:
+        """Assign ownership metadata for a memory item."""
+        relation = MemoryOwner(
+            memory_id=memory_id,
+            user_id=user_id,
+            project_id=project_id,
+        )
+        self.memory_owner_repository.save(relation)
+        return relation
+
+    def assign_agent_owner(
+        self,
+        *,
+        agent_id: str,
+        user_id: str,
+        project_id: str,
+    ) -> AgentOwner:
+        """Assign ownership metadata for an agent resource."""
+        relation = AgentOwner.create(
+            agent_id=agent_id,
+            user_id=user_id,
+            project_id=project_id,
+        )
+        self.agent_owner_repository.save(relation)
+        return relation
+
+    def get_document_owner(self, document_id: str) -> DocumentOwner | None:
+        """Look up owner metadata for a document."""
+        return self.document_owner_repository.get_by_document(document_id)
+
+    def get_conversation_owner(
+        self,
+        conversation_id: str,
+    ) -> ConversationOwner | None:
+        """Look up owner metadata for a conversation."""
+        return self.conversation_owner_repository.get_by_conversation(conversation_id)
+
+    def get_memory_owner(self, memory_id: str) -> MemoryOwner | None:
+        """Look up owner metadata for a memory item."""
+        return self.memory_owner_repository.get_by_memory(memory_id)
+
+    def get_agent_owner(self, agent_id: str) -> AgentOwner | None:
+        """Look up owner metadata for an agent resource."""
+        return self.agent_owner_repository.get_by_agent(agent_id)
+
+    def list_projects_for_user(self, user_id: str) -> list[Project]:
+        """List all projects owned by a user."""
+        return self.project_repository.list_by_owner(user_id)
