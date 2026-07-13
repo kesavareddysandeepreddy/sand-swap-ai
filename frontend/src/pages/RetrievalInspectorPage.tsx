@@ -45,12 +45,7 @@ export const RetrievalInspectorPage = () => {
         });
     };
 
-    const getScore = (
-        metadata: Record<string, unknown>,
-        key: string,
-        fallback: number
-    ): number => {
-        const value = metadata[key];
+    const getNumericValue = (value: unknown): number | null => {
         if (typeof value === "number" && Number.isFinite(value)) {
             return value;
         }
@@ -60,7 +55,16 @@ export const RetrievalInspectorPage = () => {
                 return parsed;
             }
         }
-        return fallback;
+        return null;
+    };
+
+    const formatScore = (
+        metadata: Record<string, unknown>,
+        key: string,
+        fallback?: unknown
+    ): string => {
+        const value = getNumericValue(metadata[key]) ?? getNumericValue(fallback);
+        return value === null ? "N/A" : value.toFixed(4);
     };
 
     const getMatchReason = (chunk: RetrievedChunk): string => {
@@ -146,7 +150,7 @@ export const RetrievalInspectorPage = () => {
                         {chunks.map((chunk) => (
                             <article key={chunk.chunk_id} className="documents-chunk-card">
                                 <p className="documents-chunk-meta">
-                                    semantic={getScore(chunk.metadata, "semantic_score", chunk.score).toFixed(4)} keyword={getScore(chunk.metadata, "keyword_score", 0).toFixed(4)} combined={getScore(chunk.metadata, "combined_score", chunk.score).toFixed(4)} source={chunk.document_name} chunk={chunk.chunk_id}
+                                    semantic={formatScore(chunk.metadata, "semantic_score", chunk.score)} keyword={formatScore(chunk.metadata, "keyword_score", 0)} combined={formatScore(chunk.metadata, "combined_score", chunk.score)} source={chunk.document_name} chunk={chunk.chunk_id}
                                 </p>
                                 <p>{getMatchReason(chunk)}</p>
                                 <p>{highlightText(chunk.text)}</p>

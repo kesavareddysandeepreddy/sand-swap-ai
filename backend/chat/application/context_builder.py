@@ -7,6 +7,7 @@ from typing import Any
 
 from backend.chat.domain.chat_message import ChatMessage
 from backend.chat.infrastructure.conversation_store import ConversationStore
+from backend.core.logging.logger import LoggerFactory
 from backend.memory.core.memory_manager import MemoryManager
 from backend.rag.application.document_service import DocumentRetrievalService
 from backend.rag.domain.models import RetrievedChunk
@@ -37,6 +38,7 @@ class ContextBuilder:
         self.conversation_store = conversation_store or ConversationStore()
         self.memory_manager = memory_manager
         self.document_retrieval_service = document_retrieval_service
+        self.logger = LoggerFactory.get_logger("ContextBuilder")
 
     def build_context(
         self,
@@ -68,12 +70,30 @@ class ContextBuilder:
                 top_n=max_memories,
             )
 
-            if self.document_retrieval_service is not None:
-                documents = self.document_retrieval_service.retrieve(
-                    query=relevance_query,
-                    top_k=max_documents,
-                )
-                citations = self.document_retrieval_service.format_citations(documents)
+        history_snippet = " ".join(message.content for message in history[-3:])
+        relevance_query = f"{current_message} {history_snippet}".strip()
+
+        if self.document_retrieval_service is not None:
+            self.logger.info(
+                "build_context() document retrieval input query=%r owner_filter=%s conversation_filter=%s project_filter=%s",
+                relevance_query,
+                user_id,
+                conversation_id,
+                None,
+            )
+            documents = self.document_retrieval_service.retrieve(
+                query=relevance_query,
+                top_k=max_documents,
+                owner_id=user_id,
+            )
+            citations = self.document_retrieval_service.format_citations(documents)
+            self.logger.info(
+                "build_context() document retrieval output chunk_count=%s similarity_scores=%s owner_filter=%s conversation_filter=%s",
+                len(documents),
+                [round(document.score, 6) for document in documents[:5]],
+                user_id,
+                conversation_id,
+            )
 
         return PromptContext(
             history=history,

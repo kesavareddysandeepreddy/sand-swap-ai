@@ -22,6 +22,7 @@ def _build_chunk(
         "document_id": document.id,
         "document_name": document.name,
         "file_type": document.file_type,
+        "owner_id": document.metadata.get("owner_id"),
         "parser": document.metadata.get("parser"),
         "language": document.metadata.get("language"),
         "source_type": document.metadata.get(

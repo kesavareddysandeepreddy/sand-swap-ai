@@ -22,6 +22,7 @@ from backend.rag.domain.interfaces import (
 from backend.rag.domain.models import DocumentRecord, RetrievedChunk
 from backend.rag.parsers.factory import ParserFactory
 from backend.rag.parsers.file_types import detect_file_spec
+from backend.services import ANONYMOUS_USER_ID, normalize_user_id
 
 
 class DocumentIngestionService:
@@ -56,10 +57,22 @@ class DocumentIngestionService:
         except (TypeError, ValueError):
             return default
 
+    @staticmethod
+    def _resolve_owner_id(owner_id: str | None) -> str:
+        """Return the normalized owner for document access decisions."""
+        return normalize_user_id(owner_id)
+
+    @classmethod
+    def _document_owner_id(cls, document: DocumentRecord) -> str:
+        """Return the normalized owner stored on a document."""
+        owner_id = document.metadata.get("owner_id")
+        return cls._resolve_owner_id(owner_id if isinstance(owner_id, str) else None)
+
     async def upload_document(
         self,
         upload: UploadFile,
         *,
+        owner_id: str | None = None,
         project: str | None = None,
         tags: list[str] | None = None,
         chunk_size: int | None = None,
@@ -81,6 +94,7 @@ class DocumentIngestionService:
 
         digest = hashlib.sha256(payload).hexdigest()
         now = datetime.now(UTC)
+        resolved_owner_id = self._resolve_owner_id(owner_id)
         document = DocumentRecord(
             id=document_id,
             name=safe_name,
@@ -90,6 +104,7 @@ class DocumentIngestionService:
             size_bytes=len(payload),
             sha256=digest,
             metadata={
+                "owner_id": resolved_owner_id,
                 "project": project,
                 "tags": tags or [],
                 "language": None,
@@ -113,6 +128,7 @@ class DocumentIngestionService:
             if parsed.language:
                 document.metadata["language"] = parsed.language
             document.metadata.update(parsed.metadata)
+            document.metadata["owner_id"] = resolved_owner_id
             document.metadata["parser"] = parsed.parser or spec.parser
 
             page_count = self._to_int(document.metadata.get("page_count"))
@@ -149,6 +165,7 @@ class DocumentIngestionService:
             elapsed_ms = int((perf_counter() - started_at) * 1000)
             document.metadata["processing_time_ms"] = elapsed_ms
             document.metadata["processing_status"] = "completed"
+            document.metadata["owner_id"] = resolved_owner_id
             document.updated_at = datetime.now(UTC)
             self.repository.update(document)
             return document
@@ -159,22 +176,53 @@ class DocumentIngestionService:
             document.metadata["processing_time_ms"] = elapsed_ms
             document.metadata["processing_status"] = "failed"
             document.metadata["processing_error"] = str(exc)
+            document.metadata["owner_id"] = resolved_owner_id
             document.updated_at = datetime.now(UTC)
             self.repository.update(document)
             self.logger.exception("Failed to index document %s: %s", document.id, exc)
             raise
 
-    def list_documents(self) -> list[DocumentRecord]:
-        return self.repository.list_all()
+    def list_documents(self, owner_id: str | None = None) -> list[DocumentRecord]:
+        documents = self.repository.list_all()
+        if owner_id is None:
+            return documents
 
-    def get_document(self, document_id: str) -> DocumentRecord | None:
-        return self.repository.get(document_id)
+        resolved_owner_id = self._resolve_owner_id(owner_id)
+        return [
+            document
+            for document in documents
+            if self._document_owner_id(document) == resolved_owner_id
+        ]
 
-    def list_document_chunks(self, document_id: str) -> list[RetrievedChunk]:
+    def get_document(
+        self,
+        document_id: str,
+        owner_id: str | None = None,
+    ) -> DocumentRecord | None:
+        document = self.repository.get(document_id)
+        if document is None:
+            return None
+        if owner_id is None:
+            return document
+        if self._document_owner_id(document) != self._resolve_owner_id(owner_id):
+            return None
+        return document
+
+    def list_document_chunks(
+        self,
+        document_id: str,
+        owner_id: str | None = None,
+    ) -> list[RetrievedChunk]:
+        if self.get_document(document_id, owner_id=owner_id) is None:
+            return []
         return self.vector_store.list_chunks(document_id=document_id)
 
-    def delete_document(self, document_id: str) -> bool:
-        document = self.repository.get(document_id)
+    def delete_document(
+        self,
+        document_id: str,
+        owner_id: str | None = None,
+    ) -> bool:
+        document = self.get_document(document_id, owner_id=owner_id)
         if document is None:
             return False
 
@@ -187,14 +235,23 @@ class DocumentIngestionService:
 
         return deleted
 
-    def delete_all_documents(self) -> int:
-        documents = self.repository.list_all()
+    def delete_all_documents(self, owner_id: str | None = None) -> int:
+        documents = self.list_documents(owner_id=owner_id)
         for document in documents:
             path = Path(document.stored_path)
             if path.exists():
                 path.unlink()
-        self.vector_store.clear()
-        return self.repository.clear()
+
+        if owner_id is None:
+            self.vector_store.clear()
+            return self.repository.clear()
+
+        deleted = 0
+        for document in documents:
+            self.vector_store.delete_document(document.id)
+            if self.repository.delete(document.id):
+                deleted += 1
+        return deleted
 
 
 class DocumentRetrievalService:
@@ -202,18 +259,24 @@ class DocumentRetrievalService:
 
     def __init__(self, retriever: Retriever) -> None:
         self.retriever = retriever
+        self.logger = LoggerFactory.get_logger("DocumentRetrievalService")
 
     def retrieve(
         self,
         query: str,
         *,
         top_k: int = 5,
+        owner_id: str | None = None,
         document_id: str | None = None,
         file_type: str | None = None,
         category: str | None = None,
         metadata_filter: dict[str, Any] | None = None,
     ) -> list[RetrievedChunk]:
         filters = dict(metadata_filter or {})
+        normalized_owner_id = None
+        if owner_id is not None:
+            normalized_owner_id = normalize_user_id(owner_id)
+            filters["owner_id"] = normalized_owner_id
         if document_id:
             filters["document_id"] = document_id
         if file_type:
@@ -221,11 +284,40 @@ class DocumentRetrievalService:
         if category:
             filters["category"] = category
 
+        self.logger.info(
+            "retrieve() input query=%r top_k=%s metadata_filters=%s owner_filter=%s project_filter=%s conversation_filter=%s document_filter=%s",
+            query,
+            top_k,
+            filters or None,
+            filters.get("owner_id"),
+            filters.get("project"),
+            filters.get("conversation_id"),
+            filters.get("document_id"),
+        )
+
         chunks = self.retriever.retrieve(
             query=query,
             top_k=top_k,
             metadata_filter=filters or None,
         )
+
+        if (
+            not chunks
+            and normalized_owner_id is not None
+            and normalized_owner_id != ANONYMOUS_USER_ID
+        ):
+            fallback_filters = dict(filters)
+            fallback_filters["owner_id"] = ANONYMOUS_USER_ID
+            self.logger.info(
+                "retrieve() owner-scoped query returned zero chunks; retrying with anonymous legacy owner filter=%s",
+                fallback_filters,
+            )
+            chunks = self.retriever.retrieve(
+                query=query,
+                top_k=top_k,
+                metadata_filter=fallback_filters,
+            )
+
         for chunk in chunks:
             if "semantic_score" not in chunk.metadata:
                 chunk.metadata["semantic_score"] = chunk.score
@@ -233,6 +325,15 @@ class DocumentRetrievalService:
                 chunk.metadata["keyword_score"] = 0.0
             if "combined_score" not in chunk.metadata:
                 chunk.metadata["combined_score"] = chunk.score
+
+        self.logger.info(
+            "retrieve() output chunk_count=%s similarity_scores=%s owner_filter=%s project_filter=%s conversation_filter=%s",
+            len(chunks),
+            [round(chunk.score, 6) for chunk in chunks[:5]],
+            filters.get("owner_id"),
+            filters.get("project"),
+            filters.get("conversation_id"),
+        )
         return chunks
 
     def format_citations(self, chunks: list[RetrievedChunk]) -> list[str]:

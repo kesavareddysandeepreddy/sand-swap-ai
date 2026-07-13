@@ -9,16 +9,20 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from pydantic import BaseModel, Field
 
 from backend.api.dependencies import (
+    CurrentUserDependency,
     get_document_ingestion_service,
     get_document_retrieval_service,
 )
+from backend.core.logging.logger import LoggerFactory
 from backend.rag.application.document_service import (
     DocumentIngestionService,
     DocumentRetrievalService,
 )
 from backend.rag.domain.models import DocumentRecord, RetrievedChunk
+from backend.services import resolve_owner_id
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+logger = LoggerFactory.get_logger("DocumentRoutes")
 
 
 class DocumentResponse(BaseModel):
@@ -110,12 +114,15 @@ async def upload_document(
     chunk_size: int | None = Form(default=None, ge=1, le=200),
     overlap: int | None = Form(default=None, ge=0, le=100),
     service: DocumentIngestionService = Depends(get_document_ingestion_service),
+    current_user: CurrentUserDependency = None,
 ) -> DocumentResponse:
     """Upload, parse, chunk, and index a document."""
     tag_list = [tag.strip() for tag in tags.split(",")] if tags else []
+    owner_id = resolve_owner_id(current_user)
     try:
         document = await service.upload_document(
             file,
+            owner_id=owner_id,
             project=project,
             tags=[tag for tag in tag_list if tag],
             chunk_size=chunk_size,
@@ -136,18 +143,25 @@ async def upload_document(
 @router.get("", response_model=list[DocumentResponse])
 def list_documents(
     service: DocumentIngestionService = Depends(get_document_ingestion_service),
+    current_user: CurrentUserDependency = None,
 ) -> list[DocumentResponse]:
     """List all uploaded documents."""
-    return [_serialize_document(document) for document in service.list_documents()]
+    owner_id = resolve_owner_id(current_user)
+    return [
+        _serialize_document(document)
+        for document in service.list_documents(owner_id=owner_id)
+    ]
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
 def get_document(
     document_id: str,
     service: DocumentIngestionService = Depends(get_document_ingestion_service),
+    current_user: CurrentUserDependency = None,
 ) -> DocumentResponse:
     """Fetch one uploaded document metadata record."""
-    document = service.get_document(document_id)
+    owner_id = resolve_owner_id(current_user)
+    document = service.get_document(document_id, owner_id=owner_id)
     if document is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
@@ -159,15 +173,18 @@ def get_document(
 def get_document_chunks(
     document_id: str,
     service: DocumentIngestionService = Depends(get_document_ingestion_service),
+    current_user: CurrentUserDependency = None,
 ) -> list[RetrievedChunkResponse]:
     """List indexed chunks for a document."""
-    document = service.get_document(document_id)
+    owner_id = resolve_owner_id(current_user)
+    document = service.get_document(document_id, owner_id=owner_id)
     if document is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
         )
     return [
-        _serialize_chunk(chunk) for chunk in service.list_document_chunks(document_id)
+        _serialize_chunk(chunk)
+        for chunk in service.list_document_chunks(document_id, owner_id=owner_id)
     ]
 
 
@@ -175,14 +192,34 @@ def get_document_chunks(
 def retrieve_chunks(
     payload: RetrievalRequest,
     service: DocumentRetrievalService = Depends(get_document_retrieval_service),
+    current_user: CurrentUserDependency = None,
 ) -> RetrievalResponse:
     """Retrieve top matching chunks for inspector and context building."""
+    owner_id = resolve_owner_id(current_user)
+    logger.info(
+        "retrieve_chunks() input query=%r top_k=%s owner_filter=%s document_filter=%s file_type_filter=%s category_filter=%s project_filter=%s conversation_filter=%s",
+        payload.query,
+        payload.top_k,
+        owner_id,
+        payload.document_id,
+        payload.file_type,
+        payload.category,
+        None,
+        None,
+    )
     chunks = service.retrieve(
         query=payload.query,
         top_k=payload.top_k,
+        owner_id=owner_id,
         document_id=payload.document_id,
         file_type=payload.file_type,
         category=payload.category,
+    )
+    logger.info(
+        "retrieve_chunks() output chunk_count=%s similarity_scores=%s owner_filter=%s",
+        len(chunks),
+        [round(chunk.score, 6) for chunk in chunks[:5]],
+        owner_id,
     )
     return RetrievalResponse(
         chunks=[_serialize_chunk(chunk) for chunk in chunks],
@@ -194,9 +231,11 @@ def retrieve_chunks(
 def delete_document(
     document_id: str,
     service: DocumentIngestionService = Depends(get_document_ingestion_service),
+    current_user: CurrentUserDependency = None,
 ) -> None:
     """Delete one document and all its indexed chunks."""
-    deleted = service.delete_document(document_id)
+    owner_id = resolve_owner_id(current_user)
+    deleted = service.delete_document(document_id, owner_id=owner_id)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
@@ -206,7 +245,9 @@ def delete_document(
 @router.delete("", response_model=DeleteManyResponse)
 def delete_all_documents(
     service: DocumentIngestionService = Depends(get_document_ingestion_service),
+    current_user: CurrentUserDependency = None,
 ) -> DeleteManyResponse:
     """Delete all uploaded documents and indexed chunks."""
-    deleted = service.delete_all_documents()
+    owner_id = resolve_owner_id(current_user)
+    deleted = service.delete_all_documents(owner_id=owner_id)
     return DeleteManyResponse(deleted=deleted)

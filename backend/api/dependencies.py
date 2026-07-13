@@ -5,12 +5,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Annotated
+from uuid import uuid4
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.auth import (
+    AuthService,
     CurrentUser,
+    PasswordHasher,
     TokenError,
     TokenService,
 )
@@ -40,6 +43,7 @@ from backend.rag.infrastructure.sqlite_document_repository import (
 from backend.rag.parsers.factory import ParserFactory
 from backend.rag.retrievers.semantic_retriever import SemanticRetriever
 from backend.rag.vectorstores.sqlite_vector_store import SQLiteVectorStore
+from backend.services.user_service import UserService
 
 logger = LoggerFactory.get_logger("RuntimeDependencies")
 http_bearer = HTTPBearer(auto_error=False)
@@ -87,6 +91,52 @@ def get_token_service() -> TokenService:
     return token_service
 
 
+class _InMemoryUserRepository:
+    """Minimal user repository used for auth API integration."""
+
+    def __init__(self) -> None:
+        self._by_id: dict[str, object] = {}
+        self._by_email: dict[str, object] = {}
+
+    def get_by_id(self, user_id: str):
+        return self._by_id.get(user_id)
+
+    def get_by_email(self, email: str):
+        return self._by_email.get(email)
+
+    def save(self, user):
+        self._by_id[user.id] = user
+        self._by_email[user.email] = user
+        return user
+
+    def create(self, user):
+        return self.save(user)
+
+
+def get_auth_service(
+    token_service: Annotated[TokenService, Depends(get_token_service)],
+) -> AuthService:
+    """Resolve the shared authentication service."""
+    container = get_container()
+    if container.exists("auth_service"):
+        return container.resolve("auth_service")
+
+    repository = _InMemoryUserRepository()
+    user_service = UserService(user_repository=repository)
+    password_hasher = PasswordHasher()
+    auth_service = AuthService(
+        user_service=user_service,
+        password_hasher=password_hasher,
+        token_service=token_service,
+    )
+
+    container.register("user_repository", repository)
+    container.register("user_service", user_service)
+    container.register("password_hasher", password_hasher)
+    container.register("auth_service", auth_service)
+    return auth_service
+
+
 def _resolve_bearer_token(
     credentials: HTTPAuthorizationCredentials | None,
 ) -> str | None:
@@ -122,6 +172,18 @@ def get_current_user(
         return CurrentUser.anonymous(auth_error=str(exc))
 
     return CurrentUser.authenticated(claims)
+
+
+def get_authenticated_user(
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> CurrentUser:
+    """Resolve only authenticated users for protected auth endpoints."""
+    if current_user.is_authenticated:
+        return current_user
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required",
+    )
 
 
 def register_runtime_dependencies(container: Container | None = None) -> Container:
@@ -236,6 +298,16 @@ def get_settings() -> Settings:
 
 CurrentUserDependency = Annotated[CurrentUser, Depends(get_current_user)]
 AuthenticatedUserDependency = CurrentUserDependency
+AuthServiceDependency = Annotated[AuthService, Depends(get_auth_service)]
+RequiredCurrentUserDependency = Annotated[
+    CurrentUser,
+    Depends(get_authenticated_user),
+]
+
+
+def generate_user_id() -> str:
+    """Create a user identifier for auth registration."""
+    return str(uuid4())
 
 
 def get_chat_service() -> ChatService:

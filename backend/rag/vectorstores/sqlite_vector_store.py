@@ -12,6 +12,7 @@ from typing import Any
 from backend.core.logging.logger import LoggerFactory
 from backend.rag.domain.interfaces import VectorStore
 from backend.rag.domain.models import DocumentChunk, RetrievedChunk
+from backend.services import normalize_user_id
 
 
 class SQLiteVectorStore(VectorStore):
@@ -144,9 +145,14 @@ class SQLiteVectorStore(VectorStore):
             rows = cursor.fetchall()
 
         results: list[RetrievedChunk] = []
+        filtered_counts: dict[str, int] = {}
         for row in rows:
             metadata = json.loads(str(row["metadata"]))
-            if metadata_filter and not self._matches_filter(metadata, metadata_filter):
+            filter_reason = self._filter_mismatch_reason(metadata, metadata_filter)
+            if filter_reason is not None:
+                filtered_counts[filter_reason] = (
+                    filtered_counts.get(filter_reason, 0) + 1
+                )
                 continue
 
             vector = [float(value) for value in json.loads(str(row["vector"]))]
@@ -163,7 +169,20 @@ class SQLiteVectorStore(VectorStore):
             )
 
         results.sort(key=lambda chunk: chunk.score, reverse=True)
-        return results[:top_k]
+        selected = results[:top_k]
+        self.logger.info(
+            "retrieve() input query_vector_dims=%s total_chunks=%s metadata_filter=%s filtered_counts=%s output_chunk_count=%s similarity_scores=%s owner_filter=%s project_filter=%s conversation_filter=%s",
+            len(query_vector),
+            len(rows),
+            metadata_filter,
+            filtered_counts,
+            len(selected),
+            [round(chunk.score, 6) for chunk in selected[:5]],
+            (metadata_filter or {}).get("owner_id") if metadata_filter else None,
+            (metadata_filter or {}).get("project") if metadata_filter else None,
+            (metadata_filter or {}).get("conversation_id") if metadata_filter else None,
+        )
+        return selected
 
     def close(self) -> None:
         with self.lock:
@@ -172,20 +191,42 @@ class SQLiteVectorStore(VectorStore):
     def _matches_filter(
         self, metadata: dict[str, Any], filters: dict[str, Any]
     ) -> bool:
+        return self._filter_mismatch_reason(metadata, filters) is None
+
+    def _filter_mismatch_reason(
+        self,
+        metadata: dict[str, Any],
+        filters: dict[str, Any] | None,
+    ) -> str | None:
+        if not filters:
+            return None
+
         for key, expected in filters.items():
-            if key in {"document_id", "file_type", "category"}:
+            if key in {"document_id", "file_type", "category", "owner_id"}:
                 value = metadata.get(key)
+                if key == "owner_id":
+                    value = normalize_user_id(value if isinstance(value, str) else None)
+                    if isinstance(expected, list):
+                        normalized_expected = [
+                            normalize_user_id(str(item)) for item in expected
+                        ]
+                        if value not in normalized_expected:
+                            return f"owner_id:{value}!={normalized_expected}"
+                        continue
+                    if value != normalize_user_id(str(expected)):
+                        return f"owner_id:{value}!={normalize_user_id(str(expected))}"
+                    continue
                 if isinstance(expected, list):
                     if value not in expected:
-                        return False
+                        return f"{key}:{value}!={expected}"
                 elif value != expected:
-                    return False
+                    return f"{key}:{value}!={expected}"
                 continue
 
             if metadata.get(key) != expected:
-                return False
+                return f"{key}:{metadata.get(key)}!={expected}"
 
-        return True
+        return None
 
     def _cosine_similarity(self, lhs: list[float], rhs: list[float]) -> float:
         if not lhs or not rhs or len(lhs) != len(rhs):

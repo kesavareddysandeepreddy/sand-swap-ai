@@ -8,9 +8,13 @@ import requests
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from backend.api.dependencies import (
+    CurrentUserDependency,
+)
 from backend.api.dependencies import get_chat_service as resolve_chat_service
 from backend.chat.application.chat_service import ChatService
 from backend.core.logging.logger import LoggerFactory
+from backend.services import resolve_owner_id
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = LoggerFactory.get_logger("ChatRoutes")
@@ -36,11 +40,16 @@ class ChatResponse(BaseModel):
 async def send_message(
     request: ChatRequest,
     chat_service: Annotated[ChatService, Depends(resolve_chat_service)],
+    current_user: CurrentUserDependency,
 ) -> ChatResponse:
     """Send a user message to the chat service."""
+    effective_user_id = resolve_owner_id(
+        current_user,
+        fallback_user_id=request.user_id,
+    )
     try:
         result = await chat_service.send_message(
-            user_id=request.user_id,
+            user_id=effective_user_id,
             message=request.message,
             conversation_id=request.conversation_id,
         )

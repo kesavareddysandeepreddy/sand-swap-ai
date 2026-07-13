@@ -16,6 +16,8 @@ from backend.chat.infrastructure.conversation_store import ConversationStore
 from backend.llm.client import OllamaClient
 from backend.memory.core.memory_manager import MemoryManager
 from backend.memory.stores.sqlite.sqlite_store import SQLiteMemoryStore
+from backend.rag.application.document_service import DocumentRetrievalService
+from backend.rag.domain.models import RetrievedChunk
 
 
 @pytest.fixture
@@ -72,6 +74,74 @@ def test_context_builder_uses_history_and_memories(temp_workspace: str) -> None:
     assert any(memory.key == "favorite_color" for memory in context.memories)
 
     memory_store.close()
+    conversation_store.close()
+
+
+def test_context_builder_filters_documents_by_owner(temp_workspace: str) -> None:
+    conversation_store = ConversationStore(
+        db_path=str(Path(temp_workspace) / "conversations.db")
+    )
+    session_manager = SessionManager(conversation_store=conversation_store)
+
+    class FakeDocumentRetrievalService(DocumentRetrievalService):
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def retrieve(
+            self,
+            query: str,
+            *,
+            top_k: int = 5,
+            owner_id: str | None = None,
+            document_id: str | None = None,
+            file_type: str | None = None,
+            category: str | None = None,
+            metadata_filter: dict[str, object] | None = None,
+        ) -> list[RetrievedChunk]:
+            self.calls.append(
+                {
+                    "query": query,
+                    "top_k": top_k,
+                    "owner_id": owner_id,
+                    "document_id": document_id,
+                    "file_type": file_type,
+                    "category": category,
+                    "metadata_filter": metadata_filter,
+                }
+            )
+            return []
+
+        def format_citations(self, chunks: list[RetrievedChunk]) -> list[str]:
+            return []
+
+    retrieval_service = FakeDocumentRetrievalService()
+    conversation = session_manager.get_or_create_session("owner-1", "conv-1")
+    conversation.add_message("user", "show me the runbook")
+    conversation_store.save_conversation(conversation)
+
+    context_builder = ContextBuilder(
+        conversation_store=conversation_store,
+        document_retrieval_service=retrieval_service,
+    )
+
+    context_builder.build_context(
+        user_id="owner-1",
+        conversation_id=conversation.id,
+        current_message="deployment guide",
+    )
+
+    assert retrieval_service.calls == [
+        {
+            "query": "deployment guide show me the runbook",
+            "top_k": 5,
+            "owner_id": "owner-1",
+            "document_id": None,
+            "file_type": None,
+            "category": None,
+            "metadata_filter": None,
+        }
+    ]
+
     conversation_store.close()
 
 

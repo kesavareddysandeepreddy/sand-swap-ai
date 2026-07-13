@@ -23,6 +23,41 @@ vi.mock("../api/documents", () => ({
 }));
 
 describe("RetrievalInspectorPage", () => {
+    it("renders safely when optional scores are missing", async () => {
+        vi.mocked(documentsApi.retrieve).mockResolvedValueOnce({
+            chunks: [
+                {
+                    chunk_id: "chunk-missing-scores",
+                    document_id: "doc-1",
+                    document_name: "guide.md",
+                    text: "deployment guidance",
+                    score: undefined as unknown as number,
+                    metadata: { section: "Deployment" },
+                },
+            ],
+            citations: [
+                "guide.md | page=- | section=Deployment | chunk=chunk-missing-scores",
+            ],
+        });
+
+        render(<RetrievalInspectorPage />);
+
+        fireEvent.change(
+            screen.getByPlaceholderText(
+                "Ask: What chunks are relevant for this query?"
+            ),
+            { target: { value: "how to deploy" } }
+        );
+
+        fireEvent.click(screen.getByRole("button", { name: "Run Inspector" }));
+
+        await waitFor(() => {
+            expect(screen.getByText(/semantic=N\/A/i)).toBeInTheDocument();
+            expect(screen.getByText(/keyword=0\.0000/i)).toBeInTheDocument();
+            expect(screen.getByText(/combined=N\/A/i)).toBeInTheDocument();
+        });
+    });
+
     it("shows retrieval results", async () => {
         render(<RetrievalInspectorPage />);
 

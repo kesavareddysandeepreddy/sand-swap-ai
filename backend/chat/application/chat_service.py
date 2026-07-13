@@ -63,6 +63,12 @@ class ChatService(BaseService):
         conversation_id: str | None = None,
     ) -> dict[str, Any]:
         """Process a user message and return the assistant response."""
+        self.logger.info(
+            "send_message() input user_id=%s conversation_id=%s message=%r",
+            user_id,
+            conversation_id,
+            message,
+        )
         conversation = self.session_manager.get_or_create_session(
             user_id, conversation_id
         )
@@ -73,6 +79,13 @@ class ChatService(BaseService):
             user_id=user_id,
             conversation_id=conversation.id,
             current_message=message,
+        )
+        self.logger.info(
+            "send_message() context output history_count=%s memory_count=%s document_count=%s conversation_id=%s",
+            len(context.history),
+            len(context.memories),
+            len(context.documents),
+            conversation.id,
         )
         prompt = self.prompt_builder.build_prompt(context)
 
