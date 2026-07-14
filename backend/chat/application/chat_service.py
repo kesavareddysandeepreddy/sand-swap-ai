@@ -129,6 +129,7 @@ class ChatService(BaseService):
         user_id: str,
         message: str,
         conversation_id: str | None = None,
+        model: str | None = None,
         workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> dict[str, Any]:
@@ -177,6 +178,7 @@ class ChatService(BaseService):
         response_text = await asyncio.to_thread(
             self.ollama_client.generate,
             prompt=prompt,
+            model=(model.strip() if model else None),
             system=self.prompt_builder.build_system_prompt(),
             temperature=0.2,
         )
@@ -209,6 +211,63 @@ class ChatService(BaseService):
         if conversation is None:
             return []
         return conversation.messages
+
+    @staticmethod
+    def _conversation_title(conversation: Conversation) -> str:
+        """Derive a stable UI title from the first user message."""
+        first_user = next(
+            (message for message in conversation.messages if message.role == "user"),
+            None,
+        )
+        seed = (
+            first_user.content.strip()
+            if first_user is not None
+            else (
+                conversation.messages[0].content.strip()
+                if conversation.messages
+                else ""
+            )
+        )
+        if not seed:
+            return "New conversation"
+        return f"{seed[:36]}..." if len(seed) > 36 else seed
+
+    async def list_conversations(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return persisted conversations visible to the scoped user context."""
+        conversations = self.session_manager.conversation_store.list_conversations(
+            user_id
+        )
+        visible: list[dict[str, Any]] = []
+
+        for conversation in conversations:
+            if self.ownership_service is not None:
+                owner = self.ownership_service.get_conversation_owner(conversation.id)
+                if owner is None or owner.user_id != user_id:
+                    continue
+                if workspace_id is not None and owner.workspace_id != workspace_id:
+                    continue
+                if project_id is not None and owner.project_id != project_id:
+                    continue
+
+            visible.append(
+                {
+                    "id": conversation.id,
+                    "title": self._conversation_title(conversation),
+                    "updated_at": conversation.updated_at.isoformat(),
+                    "messages": [
+                        message.to_dict() for message in conversation.messages
+                    ],
+                }
+            )
+
+        visible.sort(key=lambda item: item["updated_at"], reverse=True)
+        return visible
 
     async def get_conversation(
         self, user_id: str, conversation_id: str

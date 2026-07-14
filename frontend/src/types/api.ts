@@ -8,12 +8,35 @@ export interface ChatRequest {
     user_id: string;
     message: string;
     conversation_id?: string;
+    model?: string;
 }
 
 export interface ChatResponse {
     conversation_id: string;
     response: string;
     memories_saved: number;
+}
+
+export interface ChatModelsResponse {
+    models: string[];
+}
+
+export interface ChatConversationMessage {
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    created_at: string;
+}
+
+export interface ChatConversationRecord {
+    id: string;
+    title: string;
+    updated_at: string;
+    messages: ChatConversationMessage[];
+}
+
+export interface ChatConversationListResponse {
+    items: ChatConversationRecord[];
 }
 
 export interface ApiErrorPayload {

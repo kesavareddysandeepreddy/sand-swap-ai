@@ -198,3 +198,38 @@ def test_llm_memory_extractor_falls_back_to_generic_fact_patterns() -> None:
         assert manager.find_by_key("sandeep", "learning_goal") is not None
 
         store.close()
+
+
+def test_llm_memory_extractor_persists_profile_statements() -> None:
+    for temp_dir in _workspace():
+        db_path = Path(temp_dir) / "memory.db"
+        store = SQLiteMemoryStore(db_path=str(db_path))
+        manager = MemoryManager(store=store)
+        extractor = LLMMemoryExtractor(memory=manager)
+        extractor.client = EmptyExtractorClient()
+
+        saved = extractor.process(
+            "sandeep",
+            "My name is Sandeep. I work as Cloud Architect.",
+            workspace_id="workspace-1",
+            project_id="project-1",
+        )
+
+        assert len(saved) >= 2
+        name = manager.find_by_key("sandeep", "name")
+        role = manager.find_by_key("sandeep", "job_title")
+        assert name is not None
+        assert name.value == "sandeep"
+        assert role is not None
+        assert role.value == "cloud architect"
+
+        scoped = manager.retrieve_relevant(
+            "sandeep",
+            "what is my name",
+            workspace_id="workspace-1",
+            project_id="project-1",
+            top_n=5,
+        )
+        assert any(item.key == "name" for item in scoped)
+
+        store.close()

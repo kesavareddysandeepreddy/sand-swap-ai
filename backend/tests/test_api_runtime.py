@@ -25,10 +25,53 @@ class FakeChatService:
         user_id: str,
         message: str,
         conversation_id: str | None = None,
+        model: str | None = None,
         workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> dict[str, str]:
-        _ = (workspace_id, project_id)
+        _ = (model, workspace_id, project_id)
+        return {
+            "response": f"echo:{message}",
+            "conversation_id": conversation_id or "default-conversation",
+            "message_id": "fake-message",
+        }
+
+    async def list_conversations(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[dict[str, object]]:
+        _ = (user_id, workspace_id, project_id)
+        return []
+
+
+class FakeChatServiceWithModels(FakeChatService):
+    """Chat service stub exposing deterministic model inventory."""
+
+    def __init__(self) -> None:
+        self.last_model: str | None = None
+        self.ollama_client = type(
+            "FakeOllamaClient",
+            (),
+            {
+                "model": "llama3.2:3b",
+                "list_models": lambda _self: ["llama3.2:3b", "qwen2.5:14b"],
+            },
+        )()
+
+    async def send_message(
+        self,
+        user_id: str,
+        message: str,
+        conversation_id: str | None = None,
+        model: str | None = None,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+    ) -> dict[str, str]:
+        _ = (user_id, workspace_id, project_id)
+        self.last_model = model
         return {
             "response": f"echo:{message}",
             "conversation_id": conversation_id or "default-conversation",
@@ -241,3 +284,47 @@ def test_chat_ignores_forged_user_id_for_authenticated_requests(
 
     assert response.status_code == 200
     assert response.json()["conversation_id"] == "default-conversation"
+
+
+def test_chat_models_endpoint_returns_available_models(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORY_DB_PATH", str(tmp_path / "chat-models-memory.db"))
+    monkeypatch.setenv("RAG_DB_PATH", str(tmp_path / "chat-models-rag"))
+
+    app.dependency_overrides[get_chat_service] = lambda: FakeChatServiceWithModels()
+    try:
+        with TestClient(app) as client:
+            response = client.get("/chat/models")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"models": ["llama3.2:3b", "qwen2.5:14b"]}
+
+
+def test_chat_model_is_forwarded_from_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORY_DB_PATH", str(tmp_path / "chat-model-forward-memory.db"))
+    monkeypatch.setenv("RAG_DB_PATH", str(tmp_path / "chat-model-forward-rag"))
+
+    fake_chat = FakeChatServiceWithModels()
+    app.dependency_overrides[get_chat_service] = lambda: fake_chat
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/chat",
+                json={
+                    "user_id": "anon-session-1",
+                    "message": "hello",
+                    "model": "qwen2.5:14b",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert fake_chat.last_model == "qwen2.5:14b"

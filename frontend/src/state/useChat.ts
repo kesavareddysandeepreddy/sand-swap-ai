@@ -6,6 +6,7 @@ import { createId } from "../utils/ids";
 import { loadChatState, persistChatState } from "./chatStorage";
 
 const DRAFT_ID_PREFIX = "draft-";
+const CHAT_MODEL_KEY_PREFIX = "sand-swap-chat-model-v1";
 
 const getConversationTitle = (message: string): string =>
     message.length > 36 ? `${message.slice(0, 36)}...` : message;
@@ -66,6 +67,61 @@ export const useChat = (ownerId: string, storageScopeId: string) => {
     const [activeConversationId, setActiveConversationId] = useState<string | null>(initialState.activeConversationId);
     const [isSending, setIsSending] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
+    const [availableModels, setAvailableModels] = useState<string[]>([]);
+    const [selectedModel, setSelectedModel] = useState<string | null>(null);
+
+    useEffect(() => {
+        const key = `${CHAT_MODEL_KEY_PREFIX}:${storageScopeId}`;
+        const stored = window.localStorage.getItem(key)?.trim() ?? "";
+        setSelectedModel(stored || null);
+    }, [storageScopeId]);
+
+    useEffect(() => {
+        let mounted = true;
+        const loadModels = async () => {
+            try {
+                const response = await apiClient.listChatModels();
+                if (!mounted) {
+                    return;
+                }
+                const nextModels = response.models ?? [];
+                setAvailableModels(nextModels);
+                if (nextModels.length === 0) {
+                    return;
+                }
+                setSelectedModel((previous) => {
+                    if (previous && nextModels.includes(previous)) {
+                        return previous;
+                    }
+
+                    const preferred =
+                        nextModels.find((model) => model.startsWith("llama3")) ??
+                        nextModels[0];
+
+                    return preferred;
+                });
+            } catch {
+                if (!mounted) {
+                    return;
+                }
+                setAvailableModels([]);
+            }
+        };
+
+        void loadModels();
+        return () => {
+            mounted = false;
+        };
+    }, [storageScopeId]);
+
+    useEffect(() => {
+        const key = `${CHAT_MODEL_KEY_PREFIX}:${storageScopeId}`;
+        if (selectedModel) {
+            window.localStorage.setItem(key, selectedModel);
+        } else {
+            window.localStorage.removeItem(key);
+        }
+    }, [selectedModel, storageScopeId]);
 
     useLayoutEffect(() => {
         const next = loadChatState(storageScopeId);
@@ -73,6 +129,49 @@ export const useChat = (ownerId: string, storageScopeId: string) => {
         setActiveConversationId(next.activeConversationId);
         setError(null);
     }, [storageScopeId]);
+
+    useEffect(() => {
+        if (!ownerId || ownerId.startsWith("anon-")) {
+            return;
+        }
+
+        let cancelled = false;
+        const hydrateFromServer = async () => {
+            try {
+                const response = await apiClient.listChatConversations();
+                if (cancelled) {
+                    return;
+                }
+
+                const mapped: ConversationState[] = (response.items ?? []).map((item) => ({
+                    id: item.id,
+                    title: item.title,
+                    updatedAt: item.updated_at,
+                    messages: (item.messages ?? []).map((message) => ({
+                        id: message.id,
+                        role: message.role,
+                        content: message.content,
+                        createdAt: message.created_at,
+                    })),
+                }));
+
+                setConversations(mapped);
+                setActiveConversationId((previous) => {
+                    if (previous && mapped.some((conversation) => conversation.id === previous)) {
+                        return previous;
+                    }
+                    return mapped[0]?.id ?? null;
+                });
+            } catch {
+                // Keep local cache fallback on retrieval errors.
+            }
+        };
+
+        void hydrateFromServer();
+        return () => {
+            cancelled = true;
+        };
+    }, [ownerId, storageScopeId]);
 
     useEffect(() => {
         persistChatState(storageScopeId, conversations, activeConversationId);
@@ -144,6 +243,7 @@ export const useChat = (ownerId: string, storageScopeId: string) => {
                 user_id: ownerId,
                 message: content,
                 conversation_id: requestConversationId,
+                model: selectedModel ?? undefined,
             });
 
             const assistantMessage = {
@@ -279,6 +379,9 @@ export const useChat = (ownerId: string, storageScopeId: string) => {
     return {
         userId: ownerId,
         storageScopeId,
+        availableModels,
+        selectedModel,
+        setSelectedModel,
         conversations,
         activeConversation,
         activeConversationId,

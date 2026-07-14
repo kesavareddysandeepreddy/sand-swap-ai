@@ -42,6 +42,17 @@ CATEGORY_ALIASES = {
 }
 
 LOWER_PRIORITY_TERMS = {"today", "now", "currently", "maybe", "probably"}
+TRANSIENT_PREFIXES = {
+    "what",
+    "why",
+    "how",
+    "when",
+    "where",
+    "can you",
+    "please",
+    "tell me",
+    "show me",
+}
 
 
 def _slugify(value: str) -> str:
@@ -205,12 +216,38 @@ class LLMMemoryExtractor:
                 "preference",
                 "preference",
             ),
+            (
+                r"^i work as (?P<value>.+?)[\.!?]?$",
+                "work",
+                "job_title",
+                "work",
+            ),
+            (
+                r"^my project is (?P<value>.+?)[\.!?]?$",
+                "project",
+                "project_name",
+                "project",
+            ),
+            (
+                r"^my favourite (?P<subject>.+?) is (?P<value>.+?)[\.!?]?$",
+                "preference",
+                "favorite_{subject}",
+                "preference",
+            ),
+            (
+                r"^i always use (?P<value>.+?)[\.!?]?$",
+                "preference",
+                "always_use",
+                "preference",
+            ),
         ]
 
         extracted: list[dict[str, Any]] = []
         for segment in re.split(r"(?<=[.!?])\s+", text):
             lowered = segment.lower().strip()
             if not lowered:
+                continue
+            if any(lowered.startswith(prefix) for prefix in TRANSIENT_PREFIXES):
                 continue
 
             for pattern, category, key_template, memory_type in patterns:
@@ -257,12 +294,19 @@ class LLMMemoryExtractor:
         project_id: str | None = None,
     ) -> list[object]:
         self.logger.info("process() called for user_id=%s", user_id)
-        result = self.client.generate(
-            prompt=PromptManager.memory_extraction(message),
-            system=PromptManager.MEMORY_EXTRACTION_SYSTEM,
-            format_json=True,
-        )
-        self.logger.info("Raw LLM response: %s", result)
+        result: Any = []
+        try:
+            result = self.client.generate(
+                prompt=PromptManager.memory_extraction(message),
+                system=PromptManager.MEMORY_EXTRACTION_SYSTEM,
+                format_json=True,
+            )
+            self.logger.info("Raw LLM response: %s", result)
+        except Exception as exc:  # noqa: BLE001
+            self.logger.warning(
+                "LLM extraction unavailable, using fallback patterns: %s",
+                exc,
+            )
 
         items = self._normalize(result)
         self.logger.info("Parsed memories payload: %s", items)

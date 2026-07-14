@@ -3,10 +3,17 @@ import { useState } from "react";
 
 interface MessageComposerProps {
     isSending: boolean;
+    isUploading?: boolean;
+    onUploadClick?: () => void;
     onSendMessage: (message: string) => Promise<void>;
 }
 
-export const MessageComposer = ({ isSending, onSendMessage }: MessageComposerProps) => {
+export const MessageComposer = ({
+    isSending,
+    isUploading = false,
+    onUploadClick,
+    onSendMessage,
+}: MessageComposerProps) => {
     const [value, setValue] = useState<string>("");
 
     const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -33,6 +40,14 @@ export const MessageComposer = ({ isSending, onSendMessage }: MessageComposerPro
 
     return (
         <form className="composer" onSubmit={submit}>
+            <button
+                type="button"
+                className="memory-button composer-upload"
+                disabled={isSending || isUploading}
+                onClick={onUploadClick}
+            >
+                {isUploading ? "Uploading" : "Upload"}
+            </button>
             <textarea
                 className="composer-input"
                 value={value}

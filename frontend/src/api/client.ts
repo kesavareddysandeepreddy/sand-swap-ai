@@ -3,6 +3,8 @@ import type {
     AuthLoginRequest,
     AuthTokenPair,
     AuthUserProfile,
+    ChatConversationListResponse,
+    ChatModelsResponse,
     ChatRequest,
     ChatResponse,
     CreateProjectRequest,
@@ -64,6 +66,18 @@ export class ApiClient {
                 "Content-Type": "application/json",
             },
             body: JSON.stringify(payload),
+        });
+    }
+
+    async listChatModels(): Promise<ChatModelsResponse> {
+        return this.request<ChatModelsResponse>("/chat/models", {
+            method: "GET",
+        });
+    }
+
+    async listChatConversations(): Promise<ChatConversationListResponse> {
+        return this.request<ChatConversationListResponse>("/chat/conversations", {
+            method: "GET",
         });
     }
 

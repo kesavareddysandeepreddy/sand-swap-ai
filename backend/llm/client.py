@@ -25,13 +25,15 @@ class OllamaClient:
         self,
         prompt: str,
         *,
+        model: str | None = None,
         system: str = "",
         temperature: float = 0.2,
         stream: bool = False,
         format_json: bool = False,
     ) -> Any:
+        requested_model = (model or "").strip() or self.model
         payload = {
-            "model": self.model,
+            "model": requested_model,
             "prompt": prompt,
             "system": system,
             "stream": stream,

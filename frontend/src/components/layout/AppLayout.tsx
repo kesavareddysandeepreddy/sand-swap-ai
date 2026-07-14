@@ -11,7 +11,6 @@ interface AppLayoutProps {
     health: HealthResponse | null;
     healthLoading: boolean;
     healthError: string | null;
-    workspaceScopeId: string;
     conversations: ConversationState[];
     activeConversationId: string | null;
     onSelectConversation: (id: string) => void;
@@ -25,7 +24,6 @@ export const AppLayout = ({
     health,
     healthLoading,
     healthError,
-    workspaceScopeId,
     conversations,
     activeConversationId,
     onSelectConversation,
@@ -43,21 +41,6 @@ export const AppLayout = ({
                 displayName={auth.profile?.display_name ?? null}
                 email={auth.profile?.email ?? null}
                 avatarUrl={auth.profile?.avatar_url ?? null}
-                workspaceScopeId={workspaceScopeId}
-                workspaces={auth.workspaces}
-                projects={auth.projects}
-                activeWorkspaceId={auth.activeWorkspaceId}
-                activeProjectId={auth.activeProjectId}
-                isWorkspaceLoading={auth.isWorkspaceLoading}
-                isProjectLoading={auth.isProjectLoading}
-                onSwitchWorkspace={auth.switchWorkspace}
-                onCreateWorkspace={auth.createWorkspace}
-                onRenameWorkspace={auth.renameWorkspace}
-                onDeleteWorkspace={auth.deleteWorkspace}
-                onSwitchProject={auth.switchProject}
-                onCreateProject={auth.createProject}
-                onRenameProject={auth.renameProject}
-                onDeleteProject={auth.deleteProject}
                 onGoogleSignIn={auth.signInWithGooglePopup}
                 onLogout={() => void auth.logout()}
             />

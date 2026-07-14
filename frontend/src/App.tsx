@@ -15,6 +15,9 @@ const App = () => {
     const effectiveUserId = auth.effectiveUserId;
     const workspaceScopeId = `${effectiveUserId}:${auth.activeWorkspaceId ?? "default"}:${auth.activeProjectId ?? "default"}`;
     const {
+        availableModels,
+        selectedModel,
+        setSelectedModel,
         conversations,
         activeConversation,
         activeConversationId,
@@ -37,7 +40,6 @@ const App = () => {
                         health={health}
                         healthLoading={healthLoading}
                         healthError={healthError}
-                        workspaceScopeId={workspaceScopeId}
                         conversations={conversations}
                         activeConversationId={activeConversationId}
                         onSelectConversation={setActiveConversationId}
@@ -52,9 +54,14 @@ const App = () => {
                     path="chat"
                     element={
                         <ChatPage
+                            auth={auth}
+                            workspaceScopeId={workspaceScopeId}
                             messages={activeConversation?.messages ?? []}
                             isSending={isSending}
                             error={error}
+                            availableModels={availableModels}
+                            selectedModel={selectedModel}
+                            onSelectModel={setSelectedModel}
                             onSendMessage={sendMessage}
                         />
                     }
