@@ -264,12 +264,21 @@ class MemoryManager:
         user_id: str,
         query: str,
         *,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
         top_n: int = 5,
     ) -> list[MemoryRecord]:
         query_tokens = self._tokenize(query)
         category_hint = {token for token in query_tokens if token in VALID_CATEGORIES}
         candidates = [
-            memory for memory in self.store.get_all() if memory.user_id == user_id
+            memory
+            for memory in self.store.get_all()
+            if memory.user_id == user_id
+            and (
+                workspace_id is None
+                or str(memory.metadata.get("workspace_id") or "default") == workspace_id
+            )
+            and (project_id is None or (memory.project_id or "default") == project_id)
         ]
 
         ranked = sorted(

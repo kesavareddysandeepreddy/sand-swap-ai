@@ -13,7 +13,7 @@ const App = () => {
     const auth = useAuth();
     const { health, isLoading: healthLoading, error: healthError } = useHealth();
     const effectiveUserId = auth.effectiveUserId;
-    const workspaceScopeId = `${effectiveUserId}:${auth.activeWorkspaceId ?? "default"}`;
+    const workspaceScopeId = `${effectiveUserId}:${auth.activeWorkspaceId ?? "default"}:${auth.activeProjectId ?? "default"}`;
     const {
         conversations,
         activeConversation,

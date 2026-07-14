@@ -5,12 +5,15 @@ import type {
     AuthUserProfile,
     ChatRequest,
     ChatResponse,
+    CreateProjectRequest,
     CreateWorkspaceRequest,
     GoogleOAuthExchangeRequest,
     GoogleOAuthStartResponse,
     HealthResponse,
     LogoutRequest,
+    ProjectRecord,
     RefreshTokenRequest,
+    RenameProjectRequest,
     RenameWorkspaceRequest,
     WorkspaceRecord,
 } from "../types/api";
@@ -28,6 +31,7 @@ export class ApiClient {
     private readonly baseUrl: string;
     private authToken: string | null = null;
     private workspaceId: string | null = null;
+    private projectId: string | null = null;
 
     constructor(
         baseUrl = import.meta.env.VITE_API_BASE_URL ?? "",
@@ -41,6 +45,10 @@ export class ApiClient {
 
     setWorkspaceId(workspaceId: string | null): void {
         this.workspaceId = workspaceId;
+    }
+
+    setProjectId(projectId: string | null): void {
+        this.projectId = projectId;
     }
 
     async getHealth(): Promise<HealthResponse> {
@@ -158,6 +166,51 @@ export class ApiClient {
         });
     }
 
+    async listProjects(): Promise<ProjectRecord[]> {
+        return this.request<ProjectRecord[]>("/auth/projects", {
+            method: "GET",
+        });
+    }
+
+    async createProject(payload: CreateProjectRequest): Promise<ProjectRecord> {
+        return this.request<ProjectRecord>("/auth/projects", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async renameProject(
+        projectId: string,
+        payload: RenameProjectRequest
+    ): Promise<ProjectRecord> {
+        return this.request<ProjectRecord>(`/auth/projects/${projectId}`, {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async deleteProject(projectId: string): Promise<{ deleted: boolean }> {
+        return this.request<{ deleted: boolean }>(`/auth/projects/${projectId}`, {
+            method: "DELETE",
+        });
+    }
+
+    async switchProject(projectId: string): Promise<ProjectRecord> {
+        return this.request<ProjectRecord>("/auth/projects/switch", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ project_id: projectId }),
+        });
+    }
+
     private async request<T>(path: string, init: RequestInit): Promise<T> {
         const endpoint = this.buildEndpoint(path);
         let response: Response;
@@ -167,6 +220,9 @@ export class ApiClient {
         }
         if (this.workspaceId) {
             headers.set("X-Workspace-Id", this.workspaceId);
+        }
+        if (this.projectId) {
+            headers.set("X-Project-Id", this.projectId);
         }
         const requestInit: RequestInit = {
             ...init,

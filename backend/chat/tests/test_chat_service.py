@@ -93,6 +93,8 @@ def test_context_builder_filters_documents_by_owner(temp_workspace: str) -> None
             *,
             top_k: int = 5,
             owner_id: str | None = None,
+            workspace_id: str | None = None,
+            project_id: str | None = None,
             document_id: str | None = None,
             file_type: str | None = None,
             category: str | None = None,
@@ -103,6 +105,8 @@ def test_context_builder_filters_documents_by_owner(temp_workspace: str) -> None
                     "query": query,
                     "top_k": top_k,
                     "owner_id": owner_id,
+                    "workspace_id": workspace_id,
+                    "project_id": project_id,
                     "document_id": document_id,
                     "file_type": file_type,
                     "category": category,
@@ -135,6 +139,8 @@ def test_context_builder_filters_documents_by_owner(temp_workspace: str) -> None
             "query": "deployment guide show me the runbook",
             "top_k": 5,
             "owner_id": "owner-1",
+            "workspace_id": None,
+            "project_id": None,
             "document_id": None,
             "file_type": None,
             "category": None,
@@ -190,7 +196,14 @@ async def test_chat_service_returns_response_and_extracts_memories_afterward(
         def __init__(self) -> None:
             self.calls: list[tuple[str, str]] = []
 
-        def process(self, user_id: str, message: str) -> list[object]:
+        def process(
+            self,
+            user_id: str,
+            message: str,
+            *,
+            workspace_id: str | None = None,
+            project_id: str | None = None,
+        ) -> list[object]:
             self.calls.append((user_id, message))
             return []
 
@@ -247,7 +260,14 @@ async def test_chat_service_injects_history_and_memory_into_prompt(
         return "Your name is Sandeep."
 
     class NoopExtractor:
-        def process(self, user_id: str, message: str) -> list[object]:
+        def process(
+            self,
+            user_id: str,
+            message: str,
+            *,
+            workspace_id: str | None = None,
+            project_id: str | None = None,
+        ) -> list[object]:
             return []
 
     try:

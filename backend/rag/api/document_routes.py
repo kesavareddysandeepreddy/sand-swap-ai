@@ -20,7 +20,7 @@ from backend.rag.application.document_service import (
     DocumentRetrievalService,
 )
 from backend.rag.domain.models import DocumentRecord, RetrievedChunk
-from backend.services import resolve_owner_id, resolve_workspace_id
+from backend.services import resolve_owner_id, resolve_project_id, resolve_workspace_id
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 logger = LoggerFactory.get_logger("DocumentRoutes")
@@ -122,11 +122,13 @@ async def upload_document(
     tag_list = [tag.strip() for tag in tags.split(",")] if tags else []
     owner_id = resolve_owner_id(current_user)
     workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
     try:
         document = await service.upload_document(
             file,
             owner_id=owner_id,
-            project=project or workspace_id,
+            workspace_id=workspace_id,
+            project=project or project_id,
             tags=[tag for tag in tag_list if tag],
             chunk_size=chunk_size,
             overlap=overlap,
@@ -152,11 +154,13 @@ def list_documents(
     """List all uploaded documents."""
     owner_id = resolve_owner_id(current_user)
     workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
     return [
         _serialize_document(document)
         for document in service.list_documents(
             owner_id=owner_id,
-            project_id=workspace_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
         )
     ]
 
@@ -171,10 +175,12 @@ def get_document(
     """Fetch one uploaded document metadata record."""
     owner_id = resolve_owner_id(current_user)
     workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
     document = service.get_document(
         document_id,
         owner_id=owner_id,
-        project_id=workspace_id,
+        workspace_id=workspace_id,
+        project_id=project_id,
     )
     if document is None:
         raise HTTPException(
@@ -193,10 +199,12 @@ def get_document_chunks(
     """List indexed chunks for a document."""
     owner_id = resolve_owner_id(current_user)
     workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
     document = service.get_document(
         document_id,
         owner_id=owner_id,
-        project_id=workspace_id,
+        workspace_id=workspace_id,
+        project_id=project_id,
     )
     if document is None:
         raise HTTPException(
@@ -207,7 +215,8 @@ def get_document_chunks(
         for chunk in service.list_document_chunks(
             document_id,
             owner_id=owner_id,
-            project_id=workspace_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
         )
     ]
 
@@ -222,6 +231,7 @@ def retrieve_chunks(
     """Retrieve top matching chunks for inspector and context building."""
     owner_id = resolve_owner_id(current_user)
     workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
     logger.info(
         "retrieve_chunks() input query=%r top_k=%s owner_filter=%s document_filter=%s file_type_filter=%s category_filter=%s project_filter=%s conversation_filter=%s",
         payload.query,
@@ -237,7 +247,8 @@ def retrieve_chunks(
         query=payload.query,
         top_k=payload.top_k,
         owner_id=owner_id,
-        project_id=workspace_id,
+        workspace_id=workspace_id,
+        project_id=project_id,
         document_id=payload.document_id,
         file_type=payload.file_type,
         category=payload.category,
@@ -264,10 +275,12 @@ def delete_document(
     """Delete one document and all its indexed chunks."""
     owner_id = resolve_owner_id(current_user)
     workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
     deleted = service.delete_document(
         document_id,
         owner_id=owner_id,
-        project_id=workspace_id,
+        workspace_id=workspace_id,
+        project_id=project_id,
     )
     if not deleted:
         raise HTTPException(
@@ -284,5 +297,10 @@ def delete_all_documents(
     """Delete all uploaded documents and indexed chunks."""
     owner_id = resolve_owner_id(current_user)
     workspace_id = resolve_workspace_id(ownership_context)
-    deleted = service.delete_all_documents(owner_id=owner_id, project_id=workspace_id)
+    project_id = resolve_project_id(ownership_context)
+    deleted = service.delete_all_documents(
+        owner_id=owner_id,
+        workspace_id=workspace_id,
+        project_id=project_id,
+    )
     return DeleteManyResponse(deleted=deleted)

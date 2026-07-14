@@ -45,7 +45,18 @@ def resolve_owner_id(
 
 
 def resolve_workspace_id(context: dict[str, str] | None) -> str:
-    """Resolve workspace/project id from request ownership context."""
+    """Resolve workspace id from request ownership context."""
+    if context is None:
+        return "default"
+    workspace_id = context.get("workspace_id")
+    if not isinstance(workspace_id, str):
+        return "default"
+    normalized = workspace_id.strip()
+    return normalized or "default"
+
+
+def resolve_project_id(context: dict[str, str] | None) -> str:
+    """Resolve active nested project id from request ownership context."""
     if context is None:
         return "default"
     project_id = context.get("project_id")

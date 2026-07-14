@@ -73,11 +73,20 @@ class DocumentIngestionService:
 
     @staticmethod
     def _document_project_id(document: DocumentRecord) -> str:
-        """Return normalized project id stored on a document."""
+        """Return normalized nested project id stored on a document."""
         project_id = document.metadata.get("project")
         if not isinstance(project_id, str):
             return "default"
         normalized = project_id.strip()
+        return normalized or "default"
+
+    @staticmethod
+    def _document_workspace_id(document: DocumentRecord) -> str:
+        """Return normalized workspace id stored on a document."""
+        workspace_id = document.metadata.get("workspace_id")
+        if not isinstance(workspace_id, str):
+            return "default"
+        normalized = workspace_id.strip()
         return normalized or "default"
 
     def _resolve_default_project_for_owner(self, owner_id: str) -> str:
@@ -113,6 +122,7 @@ class DocumentIngestionService:
         *,
         document_id: str,
         owner_id: str,
+        workspace_id: str,
         project_id: str,
     ) -> str:
         """Persist ownership links, falling back to owner default workspace."""
@@ -121,12 +131,13 @@ class DocumentIngestionService:
 
         try:
             self.ownership_service.assign_project_owner(
-                project_id=project_id,
+                project_id=workspace_id,
                 user_id=owner_id,
             )
             self.ownership_service.assign_document_owner(
                 document_id=document_id,
                 user_id=owner_id,
+                workspace_id=workspace_id,
                 project_id=project_id,
             )
             return project_id
@@ -142,6 +153,7 @@ class DocumentIngestionService:
                 self.ownership_service.assign_document_owner(
                     document_id=document_id,
                     user_id=owner_id,
+                    workspace_id=fallback_project_id,
                     project_id=fallback_project_id,
                 )
                 return fallback_project_id
@@ -159,14 +171,17 @@ class DocumentIngestionService:
             return document
         if owner is not None:
             document.metadata["owner_id"] = owner.user_id
+            document.metadata["workspace_id"] = owner.workspace_id
             document.metadata["project"] = owner.project_id
             return document
 
         resolved_owner_id = self._document_owner_id(document)
-        if not document.metadata.get("project"):
-            document.metadata["project"] = self._resolve_default_project_for_owner(
+        if not document.metadata.get("workspace_id"):
+            document.metadata["workspace_id"] = self._resolve_default_project_for_owner(
                 resolved_owner_id
             )
+        if not document.metadata.get("project"):
+            document.metadata["project"] = "default"
         return document
 
     async def upload_document(
@@ -174,6 +189,7 @@ class DocumentIngestionService:
         upload: UploadFile,
         *,
         owner_id: str | None = None,
+        workspace_id: str | None = None,
         project: str | None = None,
         tags: list[str] | None = None,
         chunk_size: int | None = None,
@@ -196,7 +212,14 @@ class DocumentIngestionService:
         digest = hashlib.sha256(payload).hexdigest()
         now = datetime.now(UTC)
         resolved_owner_id = self._resolve_owner_id(owner_id)
-        resolved_project_id = self._resolve_project_id(resolved_owner_id, project)
+        resolved_workspace_id = self._resolve_project_id(
+            resolved_owner_id, workspace_id
+        )
+        resolved_project_id = (
+            project.strip()
+            if isinstance(project, str) and project.strip()
+            else "default"
+        )
         document = DocumentRecord(
             id=document_id,
             name=safe_name,
@@ -207,6 +230,7 @@ class DocumentIngestionService:
             sha256=digest,
             metadata={
                 "owner_id": resolved_owner_id,
+                "workspace_id": resolved_workspace_id,
                 "project": resolved_project_id,
                 "tags": tags or [],
                 "language": None,
@@ -231,6 +255,7 @@ class DocumentIngestionService:
                 document.metadata["language"] = parsed.language
             document.metadata.update(parsed.metadata)
             document.metadata["owner_id"] = resolved_owner_id
+            document.metadata["workspace_id"] = resolved_workspace_id
             document.metadata["project"] = resolved_project_id
             document.metadata["parser"] = parsed.parser or spec.parser
 
@@ -269,12 +294,14 @@ class DocumentIngestionService:
             document.metadata["processing_time_ms"] = elapsed_ms
             document.metadata["processing_status"] = "completed"
             document.metadata["owner_id"] = resolved_owner_id
+            document.metadata["workspace_id"] = resolved_workspace_id
             document.metadata["project"] = resolved_project_id
             document.updated_at = datetime.now(UTC)
             self.repository.update(document)
             resolved_project_id = self._ensure_document_ownership(
                 document_id=document.id,
                 owner_id=resolved_owner_id,
+                workspace_id=resolved_workspace_id,
                 project_id=resolved_project_id,
             )
             document.metadata["project"] = resolved_project_id
@@ -289,6 +316,7 @@ class DocumentIngestionService:
             document.metadata["processing_status"] = "failed"
             document.metadata["processing_error"] = str(exc)
             document.metadata["owner_id"] = resolved_owner_id
+            document.metadata["workspace_id"] = resolved_workspace_id
             document.metadata["project"] = resolved_project_id
             document.updated_at = datetime.now(UTC)
             self.repository.update(document)
@@ -298,13 +326,14 @@ class DocumentIngestionService:
     def list_documents(
         self,
         owner_id: str | None = None,
+        workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> list[DocumentRecord]:
         documents = [
             self._attach_document_ownership(document)
             for document in self.repository.list_all()
         ]
-        if owner_id is None and project_id is None:
+        if owner_id is None and workspace_id is None and project_id is None:
             return documents
 
         resolved_owner_id = (
@@ -313,12 +342,21 @@ class DocumentIngestionService:
         resolved_project_id = (
             project_id.strip() if isinstance(project_id, str) else None
         )
+        resolved_workspace_id = (
+            workspace_id.strip() if isinstance(workspace_id, str) else None
+        )
         filtered = documents
         if resolved_owner_id is not None:
             filtered = [
                 document
                 for document in filtered
                 if self._document_owner_id(document) == resolved_owner_id
+            ]
+        if resolved_workspace_id:
+            filtered = [
+                document
+                for document in filtered
+                if self._document_workspace_id(document) == resolved_workspace_id
             ]
         if resolved_project_id:
             filtered = [
@@ -332,17 +370,23 @@ class DocumentIngestionService:
         self,
         document_id: str,
         owner_id: str | None = None,
+        workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> DocumentRecord | None:
         document = self.repository.get(document_id)
         if document is None:
             return None
         document = self._attach_document_ownership(document)
-        if owner_id is None and project_id is None:
+        if owner_id is None and workspace_id is None and project_id is None:
             return document
         if owner_id is not None and self._document_owner_id(
             document
         ) != self._resolve_owner_id(owner_id):
+            return None
+        if (
+            workspace_id
+            and self._document_workspace_id(document) != workspace_id.strip()
+        ):
             return None
         if project_id and self._document_project_id(document) != project_id.strip():
             return None
@@ -352,12 +396,14 @@ class DocumentIngestionService:
         self,
         document_id: str,
         owner_id: str | None = None,
+        workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> list[RetrievedChunk]:
         if (
             self.get_document(
                 document_id,
                 owner_id=owner_id,
+                workspace_id=workspace_id,
                 project_id=project_id,
             )
             is None
@@ -369,11 +415,13 @@ class DocumentIngestionService:
         self,
         document_id: str,
         owner_id: str | None = None,
+        workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> bool:
         document = self.get_document(
             document_id,
             owner_id=owner_id,
+            workspace_id=workspace_id,
             project_id=project_id,
         )
         if document is None:
@@ -391,9 +439,14 @@ class DocumentIngestionService:
     def delete_all_documents(
         self,
         owner_id: str | None = None,
+        workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> int:
-        documents = self.list_documents(owner_id=owner_id, project_id=project_id)
+        documents = self.list_documents(
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
         for document in documents:
             path = Path(document.stored_path)
             if path.exists():
@@ -424,6 +477,7 @@ class DocumentRetrievalService:
         *,
         top_k: int = 5,
         owner_id: str | None = None,
+        workspace_id: str | None = None,
         project_id: str | None = None,
         document_id: str | None = None,
         file_type: str | None = None,
@@ -435,6 +489,8 @@ class DocumentRetrievalService:
         if owner_id is not None:
             normalized_owner_id = normalize_user_id(owner_id)
             filters["owner_id"] = normalized_owner_id
+        if workspace_id:
+            filters["workspace_id"] = workspace_id
         if project_id:
             filters["project"] = project_id
         if document_id:

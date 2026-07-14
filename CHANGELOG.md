@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added enterprise project management with nested project scopes under workspaces, including project CRUD/switch APIs, active project persistence, and ownership context expansion to user-workspace-project isolation.
+- Extended chat, memory, and document retrieval/upload flows to enforce workspace and project scoping via request context headers and service-level filters.
+- Added frontend workspace/project selector state and API integration for project create/rename/delete/switch behavior.
+- Added regression coverage for project APIs and updated scope-aware backend/frontend tests to validate workspace-project isolation behavior.
 - Added intelligent memory-core behaviors for category normalization, duplicate suppression, conflict updates, importance thresholding, and relevance ranking in backend memory services.
 - Updated context retrieval to use ranked long-term memory selection so prompts receive the most relevant memories first.
 - Added regression tests for duplicate handling, conflict resolution, importance threshold filtering, relevance ranking, restart persistence, and prompt memory-order injection.

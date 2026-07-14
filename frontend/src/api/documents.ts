@@ -7,9 +7,19 @@ import type {
 import { ApiError } from "./client";
 
 const WORKSPACE_STORAGE_KEY = "sand-swap-active-workspace-v1";
+const PROJECT_STORAGE_KEY = "sand-swap-active-project-v1";
 
 const loadWorkspaceId = (): string | null => {
     const value = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    if (!value) {
+        return null;
+    }
+    const normalized = value.trim();
+    return normalized || null;
+};
+
+const loadProjectId = (): string | null => {
+    const value = window.localStorage.getItem(PROJECT_STORAGE_KEY);
     if (!value) {
         return null;
     }
@@ -45,6 +55,10 @@ const request = async <T>(path: string, init: RequestInit): Promise<T> => {
     const workspaceId = loadWorkspaceId();
     if (workspaceId) {
         headers.set("X-Workspace-Id", workspaceId);
+    }
+    const projectId = loadProjectId();
+    if (projectId) {
+        headers.set("X-Project-Id", projectId);
     }
     const requestInit: RequestInit = {
         ...init,

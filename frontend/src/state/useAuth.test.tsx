@@ -19,7 +19,13 @@ vi.mock("../api/client", () => ({
         renameWorkspace: vi.fn(),
         deleteWorkspace: vi.fn(),
         switchWorkspace: vi.fn(),
+        listProjects: vi.fn(),
+        createProject: vi.fn(),
+        renameProject: vi.fn(),
+        deleteProject: vi.fn(),
+        switchProject: vi.fn(),
         setWorkspaceId: vi.fn(),
+        setProjectId: vi.fn(),
     },
     ApiError: class ApiError extends Error {
         status: number;
@@ -47,6 +53,7 @@ describe("useAuth", () => {
             user_id: "user-1",
             email: "alice@example.com",
             display_name: "Alice Example",
+            workspace_id: "workspace-user-1",
             project_id: "workspace-user-1",
             avatar_url: "https://example.com/avatar.png",
             auth_provider: "google",
@@ -56,6 +63,16 @@ describe("useAuth", () => {
             {
                 id: "workspace-user-1",
                 name: "Personal Workspace",
+                description: "",
+                created_at: "2026-01-01T00:00:00Z",
+                is_active: true,
+            },
+        ]);
+        vi.mocked(apiClient.listProjects).mockResolvedValue([
+            {
+                id: "project-user-1",
+                workspace_id: "workspace-user-1",
+                name: "General Project",
                 description: "",
                 created_at: "2026-01-01T00:00:00Z",
                 is_active: true,
@@ -92,6 +109,7 @@ describe("useAuth", () => {
             user_id: "user-1",
             email: "alice@example.com",
             display_name: "Alice Example",
+            workspace_id: "workspace-user-1",
             project_id: "workspace-user-1",
             avatar_url: null,
         });
@@ -99,6 +117,16 @@ describe("useAuth", () => {
             {
                 id: "workspace-user-1",
                 name: "Personal Workspace",
+                description: "",
+                created_at: "2026-01-01T00:00:00Z",
+                is_active: true,
+            },
+        ]);
+        vi.mocked(apiClient.listProjects).mockResolvedValue([
+            {
+                id: "project-user-1",
+                workspace_id: "workspace-user-1",
+                name: "General Project",
                 description: "",
                 created_at: "2026-01-01T00:00:00Z",
                 is_active: true,
@@ -133,6 +161,7 @@ describe("useAuth", () => {
             user_id: "user-1",
             email: "alice@example.com",
             display_name: "Alice Example",
+            workspace_id: "workspace-a",
             project_id: "workspace-a",
             avatar_url: null,
         });
@@ -152,6 +181,16 @@ describe("useAuth", () => {
                 is_active: false,
             },
         ]);
+        vi.mocked(apiClient.listProjects).mockResolvedValue([
+            {
+                id: "project-a",
+                workspace_id: "workspace-a",
+                name: "Project A",
+                description: "",
+                created_at: "2026-01-01T00:00:00Z",
+                is_active: true,
+            },
+        ]);
         vi.mocked(apiClient.switchWorkspace).mockResolvedValue({
             id: "workspace-b",
             name: "Workspace B",
@@ -159,6 +198,25 @@ describe("useAuth", () => {
             created_at: "2026-01-02T00:00:00Z",
             is_active: true,
         });
+        vi.mocked(apiClient.listProjects).mockResolvedValueOnce([
+            {
+                id: "project-a",
+                workspace_id: "workspace-a",
+                name: "Project A",
+                description: "",
+                created_at: "2026-01-01T00:00:00Z",
+                is_active: true,
+            },
+        ]).mockResolvedValueOnce([
+            {
+                id: "project-b",
+                workspace_id: "workspace-b",
+                name: "Project B",
+                description: "",
+                created_at: "2026-01-02T00:00:00Z",
+                is_active: true,
+            },
+        ]);
 
         const { result } = renderHook(() => useAuth());
 
@@ -171,8 +229,74 @@ describe("useAuth", () => {
         });
 
         expect(result.current.activeWorkspaceId).toBe("workspace-b");
-        expect(result.current.profile?.project_id).toBe("workspace-b");
+        expect(result.current.profile?.workspace_id).toBe("workspace-b");
         expect(apiClient.switchWorkspace).toHaveBeenCalledWith("workspace-b");
         expect(apiClient.setWorkspaceId).toHaveBeenCalledWith("workspace-b");
+    });
+
+    it("switches active project and updates profile context", async () => {
+        persistAuthSession({
+            accessToken: "access-token",
+            refreshToken: "refresh-token",
+            tokenType: "bearer",
+        });
+        vi.mocked(apiClient.getCurrentUser).mockResolvedValue({
+            user_id: "user-1",
+            email: "alice@example.com",
+            display_name: "Alice Example",
+            workspace_id: "workspace-a",
+            project_id: "project-a",
+            avatar_url: null,
+        });
+        vi.mocked(apiClient.listWorkspaces).mockResolvedValue([
+            {
+                id: "workspace-a",
+                name: "Workspace A",
+                description: "",
+                created_at: "2026-01-01T00:00:00Z",
+                is_active: true,
+            },
+        ]);
+        vi.mocked(apiClient.listProjects).mockResolvedValue([
+            {
+                id: "project-a",
+                workspace_id: "workspace-a",
+                name: "Project A",
+                description: "",
+                created_at: "2026-01-01T00:00:00Z",
+                is_active: true,
+            },
+            {
+                id: "project-b",
+                workspace_id: "workspace-a",
+                name: "Project B",
+                description: "",
+                created_at: "2026-01-02T00:00:00Z",
+                is_active: false,
+            },
+        ]);
+        vi.mocked(apiClient.switchProject).mockResolvedValue({
+            id: "project-b",
+            workspace_id: "workspace-a",
+            name: "Project B",
+            description: "",
+            created_at: "2026-01-02T00:00:00Z",
+            is_active: true,
+        });
+
+        const { result } = renderHook(() => useAuth());
+
+        await waitFor(() => {
+            expect(result.current.isLoading).toBe(false);
+        });
+
+        await act(async () => {
+            await result.current.switchProject("project-b");
+        });
+
+        expect(result.current.activeProjectId).toBe("project-b");
+        expect(result.current.profile?.project_id).toBe("project-b");
+        expect(apiClient.switchProject).toHaveBeenCalledWith("project-b");
+        expect(apiClient.setProjectId).toHaveBeenCalledWith("project-b");
     });
 });

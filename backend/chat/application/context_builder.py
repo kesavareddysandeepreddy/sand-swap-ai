@@ -45,6 +45,7 @@ class ContextBuilder:
         user_id: str,
         conversation_id: str,
         current_message: str,
+        workspace_id: str | None = None,
         project_id: str | None = None,
         max_history_messages: int | None = None,
         max_memories: int = 5,
@@ -68,6 +69,8 @@ class ContextBuilder:
             memories = self.memory_manager.retrieve_relevant(
                 user_id,
                 relevance_query,
+                workspace_id=workspace_id,
+                project_id=project_id,
                 top_n=max_memories,
             )
 
@@ -80,12 +83,13 @@ class ContextBuilder:
                 relevance_query,
                 user_id,
                 conversation_id,
-                project_id,
+                f"{workspace_id}:{project_id}",
             )
             documents = self.document_retrieval_service.retrieve(
                 query=relevance_query,
                 top_k=max_documents,
                 owner_id=user_id,
+                workspace_id=workspace_id,
                 project_id=project_id,
             )
             citations = self.document_retrieval_service.format_citations(documents)
@@ -119,7 +123,12 @@ class ContextBuilder:
         return conversation.get_recent_messages(max_history_messages)
 
     def build_memory_context(
-        self, user_id: str, current_message: str, max_memories: int = 5
+        self,
+        user_id: str,
+        current_message: str,
+        max_memories: int = 5,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
     ) -> list[Any]:
         """Return relevant long-term memories for the current request."""
         if self.memory_manager is None:
@@ -127,5 +136,7 @@ class ContextBuilder:
         return self.memory_manager.retrieve_relevant(
             user_id,
             current_message,
+            workspace_id=workspace_id,
+            project_id=project_id,
             top_n=max_memories,
         )

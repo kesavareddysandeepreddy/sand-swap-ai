@@ -17,6 +17,7 @@ from backend.domain.entities.ownership import (
 )
 from backend.domain.entities.project import Project
 from backend.domain.entities.user import User
+from backend.domain.entities.workspace_project import WorkspaceProject
 from backend.domain.repositories.ownership_repositories import (
     AgentOwnerRepository,
     ConversationOwnerRepository,
@@ -24,6 +25,7 @@ from backend.domain.repositories.ownership_repositories import (
     MemoryOwnerRepository,
     ProjectRepository,
     UserRepository,
+    WorkspaceProjectRepository,
 )
 
 
@@ -38,6 +40,21 @@ class _SQLiteRepositoryBase:
 
     def _initialize(self) -> None:
         """Create required tables for concrete repositories."""
+
+    def _ensure_column(
+        self, table_name: str, column_name: str, column_sql: str
+    ) -> None:
+        with self._lock:
+            rows = self._connection.execute(
+                f"PRAGMA table_info({table_name})"
+            ).fetchall()
+            existing_columns = {str(row[1]) for row in rows}
+            if column_name in existing_columns:
+                return
+            self._connection.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}"
+            )
+            self._connection.commit()
 
     def close(self) -> None:
         """Close the underlying SQLite connection."""
@@ -58,6 +75,7 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
                     google_subject_id TEXT,
                     avatar_url TEXT,
                     auth_provider TEXT NOT NULL DEFAULT 'local',
+                    active_workspace_id TEXT,
                     active_project_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
@@ -72,22 +90,8 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
                 "auth_provider",
                 "TEXT NOT NULL DEFAULT 'local'",
             )
+            self._ensure_column("enterprise_users", "active_workspace_id", "TEXT")
             self._ensure_column("enterprise_users", "active_project_id", "TEXT")
-
-    def _ensure_column(
-        self, table_name: str, column_name: str, column_sql: str
-    ) -> None:
-        with self._lock:
-            rows = self._connection.execute(
-                f"PRAGMA table_info({table_name})"
-            ).fetchall()
-            existing_columns = {str(row[1]) for row in rows}
-            if column_name in existing_columns:
-                return
-            self._connection.execute(
-                f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}"
-            )
-            self._connection.commit()
 
     def create(self, user: User) -> User:
         """Create a user and fail if the id already exists."""
@@ -96,8 +100,8 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
                 """
                 INSERT INTO enterprise_users (
                     id, email, display_name, google_subject_id, avatar_url,
-                    auth_provider, active_project_id, created_at, updated_at, is_active
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    auth_provider, active_workspace_id, active_project_id, created_at, updated_at, is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     user.id,
@@ -106,6 +110,7 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
                     user.google_subject_id,
                     user.avatar_url,
                     user.auth_provider,
+                    user.active_workspace_id,
                     user.active_project_id,
                     user.created_at.isoformat(),
                     user.updated_at.isoformat(),
@@ -122,14 +127,15 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
                 """
                 INSERT INTO enterprise_users (
                     id, email, display_name, google_subject_id, avatar_url,
-                    auth_provider, active_project_id, created_at, updated_at, is_active
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    auth_provider, active_workspace_id, active_project_id, created_at, updated_at, is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     email=excluded.email,
                     display_name=excluded.display_name,
                     google_subject_id=excluded.google_subject_id,
                     avatar_url=excluded.avatar_url,
                     auth_provider=excluded.auth_provider,
+                    active_workspace_id=excluded.active_workspace_id,
                     active_project_id=excluded.active_project_id,
                     updated_at=excluded.updated_at,
                     is_active=excluded.is_active
@@ -141,6 +147,7 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
                     user.google_subject_id,
                     user.avatar_url,
                     user.auth_provider,
+                    user.active_workspace_id,
                     user.active_project_id,
                     user.created_at.isoformat(),
                     user.updated_at.isoformat(),
@@ -182,12 +189,13 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
             cursor = self._connection.execute(
                 """
                 UPDATE enterprise_users
-                SET email = ?, display_name = ?, active_project_id = ?, updated_at = ?, is_active = ?
+                SET email = ?, display_name = ?, active_workspace_id = ?, active_project_id = ?, updated_at = ?, is_active = ?
                 WHERE id = ?
                 """,
                 (
                     updated.email,
                     updated.display_name,
+                    updated.active_workspace_id,
                     updated.active_project_id,
                     updated.updated_at.isoformat(),
                     1 if updated.is_active else 0,
@@ -222,12 +230,159 @@ class SQLiteUserRepository(_SQLiteRepositoryBase, UserRepository):
             ),
             avatar_url=str(row["avatar_url"]) if row["avatar_url"] else None,
             auth_provider=str(row["auth_provider"]),
+            active_workspace_id=(
+                str(row["active_workspace_id"]) if row["active_workspace_id"] else None
+            ),
             active_project_id=(
                 str(row["active_project_id"]) if row["active_project_id"] else None
             ),
             created_at=datetime.fromisoformat(str(row["created_at"])),
             updated_at=datetime.fromisoformat(str(row["updated_at"])),
             is_active=bool(int(row["is_active"])),
+        )
+
+
+class SQLiteWorkspaceProjectRepository(
+    _SQLiteRepositoryBase, WorkspaceProjectRepository
+):
+    """SQLite-backed repository for nested projects inside a workspace."""
+
+    def _initialize(self) -> None:
+        with self._lock:
+            self._connection.execute("""
+                CREATE TABLE IF NOT EXISTS enterprise_workspace_projects (
+                    id TEXT PRIMARY KEY,
+                    workspace_id TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """)
+            self._connection.commit()
+
+    def create(self, project: WorkspaceProject) -> WorkspaceProject:
+        with self._lock:
+            self._connection.execute(
+                """
+                INSERT INTO enterprise_workspace_projects (
+                    id, workspace_id, owner_id, name, description, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project.id,
+                    project.workspace_id,
+                    project.owner_id,
+                    project.name,
+                    project.description,
+                    project.created_at.isoformat(),
+                ),
+            )
+            self._connection.commit()
+        return project
+
+    def save(self, project: WorkspaceProject) -> None:
+        with self._lock:
+            self._connection.execute(
+                """
+                INSERT INTO enterprise_workspace_projects (
+                    id, workspace_id, owner_id, name, description, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    workspace_id=excluded.workspace_id,
+                    owner_id=excluded.owner_id,
+                    name=excluded.name,
+                    description=excluded.description
+                """,
+                (
+                    project.id,
+                    project.workspace_id,
+                    project.owner_id,
+                    project.name,
+                    project.description,
+                    project.created_at.isoformat(),
+                ),
+            )
+            self._connection.commit()
+
+    def get_by_id(self, project_id: str) -> WorkspaceProject | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM enterprise_workspace_projects WHERE id = ?",
+                (project_id,),
+            ).fetchone()
+        return self._row_to_workspace_project(row)
+
+    def update(self, project: WorkspaceProject) -> WorkspaceProject:
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                UPDATE enterprise_workspace_projects
+                SET workspace_id = ?, owner_id = ?, name = ?, description = ?
+                WHERE id = ?
+                """,
+                (
+                    project.workspace_id,
+                    project.owner_id,
+                    project.name,
+                    project.description,
+                    project.id,
+                ),
+            )
+            self._connection.commit()
+        if cursor.rowcount == 0:
+            raise ValueError(f"Workspace project not found: {project.id}")
+        return project
+
+    def delete(self, project_id: str) -> bool:
+        with self._lock:
+            cursor = self._connection.execute(
+                "DELETE FROM enterprise_workspace_projects WHERE id = ?",
+                (project_id,),
+            )
+            self._connection.commit()
+        return cursor.rowcount > 0
+
+    def list_by_workspace(
+        self,
+        workspace_id: str,
+        *,
+        owner_id: str | None = None,
+    ) -> list[WorkspaceProject]:
+        with self._lock:
+            if owner_id is None:
+                rows = self._connection.execute(
+                    """
+                    SELECT * FROM enterprise_workspace_projects
+                    WHERE workspace_id = ?
+                    ORDER BY created_at ASC
+                    """,
+                    (workspace_id,),
+                ).fetchall()
+            else:
+                rows = self._connection.execute(
+                    """
+                    SELECT * FROM enterprise_workspace_projects
+                    WHERE workspace_id = ? AND owner_id = ?
+                    ORDER BY created_at ASC
+                    """,
+                    (workspace_id, owner_id),
+                ).fetchall()
+        return [self._row_to_workspace_project(row) for row in rows if row is not None]
+
+    @staticmethod
+    def _row_to_workspace_project(
+        row: sqlite3.Row | None,
+    ) -> WorkspaceProject | None:
+        if row is None:
+            return None
+        return WorkspaceProject(
+            id=str(row["id"]),
+            workspace_id=str(row["workspace_id"]),
+            owner_id=str(row["owner_id"]),
+            name=str(row["name"]),
+            description=str(row["description"]),
+            created_at=datetime.fromisoformat(str(row["created_at"])),
         )
 
 
@@ -367,22 +522,43 @@ class SQLiteConversationOwnerRepository(
             self._connection.execute("""
                 CREATE TABLE IF NOT EXISTS enterprise_conversation_owners (
                     conversation_id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL
+                    user_id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL DEFAULT 'default',
+                    project_id TEXT NOT NULL DEFAULT 'default'
                 )
                 """)
             self._connection.commit()
+            self._ensure_column(
+                "enterprise_conversation_owners",
+                "workspace_id",
+                "TEXT NOT NULL DEFAULT 'default'",
+            )
+            self._ensure_column(
+                "enterprise_conversation_owners",
+                "project_id",
+                "TEXT NOT NULL DEFAULT 'default'",
+            )
 
     def assign(self, relation: ConversationOwner) -> ConversationOwner:
         """Assign a conversation to a user."""
         with self._lock:
             self._connection.execute(
                 """
-                INSERT INTO enterprise_conversation_owners (conversation_id, user_id)
-                VALUES (?, ?)
+                INSERT INTO enterprise_conversation_owners (
+                    conversation_id, user_id, workspace_id, project_id
+                )
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT(conversation_id) DO UPDATE SET
-                    user_id=excluded.user_id
+                    user_id=excluded.user_id,
+                    workspace_id=excluded.workspace_id,
+                    project_id=excluded.project_id
                 """,
-                (relation.conversation_id, relation.user_id),
+                (
+                    relation.conversation_id,
+                    relation.user_id,
+                    relation.workspace_id,
+                    relation.project_id,
+                ),
             )
             self._connection.commit()
         return relation
@@ -423,6 +599,8 @@ class SQLiteConversationOwnerRepository(
         return ConversationOwner(
             conversation_id=str(row["conversation_id"]),
             user_id=str(row["user_id"]),
+            workspace_id=str(row["workspace_id"]),
+            project_id=str(row["project_id"]),
         )
 
     def list_by_user(self, user_id: str) -> list[ConversationOwner]:
@@ -440,6 +618,8 @@ class SQLiteConversationOwnerRepository(
             ConversationOwner(
                 conversation_id=str(row["conversation_id"]),
                 user_id=str(row["user_id"]),
+                workspace_id=str(row["workspace_id"]),
+                project_id=str(row["project_id"]),
             )
             for row in rows
         ]
@@ -459,10 +639,16 @@ class SQLiteDocumentOwnerRepository(_SQLiteRepositoryBase, DocumentOwnerReposito
                 CREATE TABLE IF NOT EXISTS enterprise_document_owners (
                     document_id TEXT PRIMARY KEY,
                     user_id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL DEFAULT 'default',
                     project_id TEXT NOT NULL
                 )
                 """)
             self._connection.commit()
+            self._ensure_column(
+                "enterprise_document_owners",
+                "workspace_id",
+                "TEXT NOT NULL DEFAULT 'default'",
+            )
 
     def assign(self, relation: DocumentOwner) -> DocumentOwner:
         """Assign a document to a user and project."""
@@ -470,13 +656,19 @@ class SQLiteDocumentOwnerRepository(_SQLiteRepositoryBase, DocumentOwnerReposito
             self._connection.execute(
                 """
                 INSERT INTO enterprise_document_owners (
-                    document_id, user_id, project_id
-                ) VALUES (?, ?, ?)
+                    document_id, user_id, workspace_id, project_id
+                ) VALUES (?, ?, ?, ?)
                 ON CONFLICT(document_id) DO UPDATE SET
                     user_id=excluded.user_id,
+                    workspace_id=excluded.workspace_id,
                     project_id=excluded.project_id
                 """,
-                (relation.document_id, relation.user_id, relation.project_id),
+                (
+                    relation.document_id,
+                    relation.user_id,
+                    relation.workspace_id,
+                    relation.project_id,
+                ),
             )
             self._connection.commit()
         return relation
@@ -511,6 +703,7 @@ class SQLiteDocumentOwnerRepository(_SQLiteRepositoryBase, DocumentOwnerReposito
         return DocumentOwner(
             document_id=str(row["document_id"]),
             user_id=str(row["user_id"]),
+            workspace_id=str(row["workspace_id"]),
             project_id=str(row["project_id"]),
         )
 
@@ -525,6 +718,7 @@ class SQLiteDocumentOwnerRepository(_SQLiteRepositoryBase, DocumentOwnerReposito
             DocumentOwner(
                 document_id=str(row["document_id"]),
                 user_id=str(row["user_id"]),
+                workspace_id=str(row["workspace_id"]),
                 project_id=str(row["project_id"]),
             )
             for row in rows
@@ -541,6 +735,7 @@ class SQLiteDocumentOwnerRepository(_SQLiteRepositoryBase, DocumentOwnerReposito
             DocumentOwner(
                 document_id=str(row["document_id"]),
                 user_id=str(row["user_id"]),
+                workspace_id=str(row["workspace_id"]),
                 project_id=str(row["project_id"]),
             )
             for row in rows
@@ -556,23 +751,36 @@ class SQLiteMemoryOwnerRepository(_SQLiteRepositoryBase, MemoryOwnerRepository):
                 CREATE TABLE IF NOT EXISTS enterprise_memory_owners (
                     memory_id TEXT PRIMARY KEY,
                     user_id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL DEFAULT 'default',
                     project_id TEXT NOT NULL
                 )
                 """)
             self._connection.commit()
+            self._ensure_column(
+                "enterprise_memory_owners",
+                "workspace_id",
+                "TEXT NOT NULL DEFAULT 'default'",
+            )
 
     def assign(self, relation: MemoryOwner) -> MemoryOwner:
         """Assign a memory record to a user and project."""
         with self._lock:
             self._connection.execute(
                 """
-                INSERT INTO enterprise_memory_owners (memory_id, user_id, project_id)
-                VALUES (?, ?, ?)
+                INSERT INTO enterprise_memory_owners (
+                    memory_id, user_id, workspace_id, project_id
+                ) VALUES (?, ?, ?, ?)
                 ON CONFLICT(memory_id) DO UPDATE SET
                     user_id=excluded.user_id,
+                    workspace_id=excluded.workspace_id,
                     project_id=excluded.project_id
                 """,
-                (relation.memory_id, relation.user_id, relation.project_id),
+                (
+                    relation.memory_id,
+                    relation.user_id,
+                    relation.workspace_id,
+                    relation.project_id,
+                ),
             )
             self._connection.commit()
         return relation
@@ -607,6 +815,7 @@ class SQLiteMemoryOwnerRepository(_SQLiteRepositoryBase, MemoryOwnerRepository):
         return MemoryOwner(
             memory_id=str(row["memory_id"]),
             user_id=str(row["user_id"]),
+            workspace_id=str(row["workspace_id"]),
             project_id=str(row["project_id"]),
         )
 
@@ -621,6 +830,7 @@ class SQLiteMemoryOwnerRepository(_SQLiteRepositoryBase, MemoryOwnerRepository):
             MemoryOwner(
                 memory_id=str(row["memory_id"]),
                 user_id=str(row["user_id"]),
+                workspace_id=str(row["workspace_id"]),
                 project_id=str(row["project_id"]),
             )
             for row in rows
@@ -637,6 +847,7 @@ class SQLiteMemoryOwnerRepository(_SQLiteRepositoryBase, MemoryOwnerRepository):
             MemoryOwner(
                 memory_id=str(row["memory_id"]),
                 user_id=str(row["user_id"]),
+                workspace_id=str(row["workspace_id"]),
                 project_id=str(row["project_id"]),
             )
             for row in rows
@@ -652,11 +863,17 @@ class SQLiteAgentOwnerRepository(_SQLiteRepositoryBase, AgentOwnerRepository):
                 CREATE TABLE IF NOT EXISTS enterprise_agent_owners (
                     agent_id TEXT PRIMARY KEY,
                     user_id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL DEFAULT 'default',
                     project_id TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 )
                 """)
             self._connection.commit()
+            self._ensure_column(
+                "enterprise_agent_owners",
+                "workspace_id",
+                "TEXT NOT NULL DEFAULT 'default'",
+            )
 
     def assign(self, relation: AgentOwner) -> AgentOwner:
         """Assign an agent resource to a user and project."""
@@ -664,16 +881,18 @@ class SQLiteAgentOwnerRepository(_SQLiteRepositoryBase, AgentOwnerRepository):
             self._connection.execute(
                 """
                 INSERT INTO enterprise_agent_owners (
-                    agent_id, user_id, project_id, created_at
-                ) VALUES (?, ?, ?, ?)
+                    agent_id, user_id, workspace_id, project_id, created_at
+                ) VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     user_id=excluded.user_id,
+                    workspace_id=excluded.workspace_id,
                     project_id=excluded.project_id,
                     created_at=excluded.created_at
                 """,
                 (
                     relation.agent_id,
                     relation.user_id,
+                    relation.workspace_id,
                     relation.project_id,
                     relation.created_at.isoformat(),
                 ),
@@ -711,6 +930,7 @@ class SQLiteAgentOwnerRepository(_SQLiteRepositoryBase, AgentOwnerRepository):
         return AgentOwner(
             agent_id=str(row["agent_id"]),
             user_id=str(row["user_id"]),
+            workspace_id=str(row["workspace_id"]),
             project_id=str(row["project_id"]),
             created_at=datetime.fromisoformat(str(row["created_at"])),
         )
@@ -726,6 +946,7 @@ class SQLiteAgentOwnerRepository(_SQLiteRepositoryBase, AgentOwnerRepository):
             AgentOwner(
                 agent_id=str(row["agent_id"]),
                 user_id=str(row["user_id"]),
+                workspace_id=str(row["workspace_id"]),
                 project_id=str(row["project_id"]),
                 created_at=datetime.fromisoformat(str(row["created_at"])),
             )
@@ -743,6 +964,7 @@ class SQLiteAgentOwnerRepository(_SQLiteRepositoryBase, AgentOwnerRepository):
             AgentOwner(
                 agent_id=str(row["agent_id"]),
                 user_id=str(row["user_id"]),
+                workspace_id=str(row["workspace_id"]),
                 project_id=str(row["project_id"]),
                 created_at=datetime.fromisoformat(str(row["created_at"])),
             )

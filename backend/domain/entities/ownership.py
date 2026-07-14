@@ -12,6 +12,8 @@ class ConversationOwner:
 
     conversation_id: str
     user_id: str
+    workspace_id: str
+    project_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +22,7 @@ class DocumentOwner:
 
     document_id: str
     user_id: str
+    workspace_id: str
     project_id: str
 
 
@@ -29,6 +32,7 @@ class MemoryOwner:
 
     memory_id: str
     user_id: str
+    workspace_id: str
     project_id: str
 
 
@@ -38,6 +42,7 @@ class AgentOwner:
 
     agent_id: str
     user_id: str
+    workspace_id: str
     project_id: str
     created_at: datetime
 
@@ -47,12 +52,14 @@ class AgentOwner:
         *,
         agent_id: str,
         user_id: str,
+        workspace_id: str,
         project_id: str,
     ) -> "AgentOwner":
         """Construct a new agent ownership binding."""
         return cls(
             agent_id=agent_id,
             user_id=user_id,
+            workspace_id=workspace_id,
             project_id=project_id,
             created_at=datetime.now(UTC),
         )

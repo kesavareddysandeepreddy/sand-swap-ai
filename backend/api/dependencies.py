@@ -38,6 +38,7 @@ from backend.persistence.sqlite_enterprise_repositories import (
     SQLiteMemoryOwnerRepository,
     SQLiteProjectRepository,
     SQLiteUserRepository,
+    SQLiteWorkspaceProjectRepository,
 )
 from backend.rag.application.document_service import (
     DocumentIngestionService,
@@ -174,6 +175,9 @@ def get_ownership_service() -> OwnershipService:
     ownership_service = OwnershipService(
         user_service=user_service,
         project_repository=project_repository,
+        workspace_project_repository=SQLiteWorkspaceProjectRepository(
+            db_path=enterprise_db_path
+        ),
         document_owner_repository=SQLiteDocumentOwnerRepository(
             db_path=enterprise_db_path
         ),
@@ -196,29 +200,41 @@ def get_request_ownership_context(
     state_context = getattr(request.state, "ownership_context", None)
     if isinstance(state_context, dict):
         user_id = state_context.get("user_id")
+        workspace_id = state_context.get("workspace_id")
         project_id = state_context.get("project_id")
-        if isinstance(user_id, str) and isinstance(project_id, str):
+        if (
+            isinstance(user_id, str)
+            and isinstance(workspace_id, str)
+            and isinstance(project_id, str)
+        ):
             return {
                 "user_id": user_id,
+                "workspace_id": workspace_id,
                 "project_id": project_id,
             }
 
     if current_user.is_authenticated and current_user.user_id is not None:
-        requested_project_id = request.headers.get("X-Workspace-Id")
+        requested_workspace_id = request.headers.get("X-Workspace-Id")
+        if requested_workspace_id is not None:
+            requested_workspace_id = requested_workspace_id.strip() or None
+        requested_project_id = request.headers.get("X-Project-Id")
         if requested_project_id is not None:
             requested_project_id = requested_project_id.strip() or None
         try:
             return ownership_service.resolve_request_context(
                 user_id=current_user.user_id,
+                requested_workspace_id=requested_workspace_id,
                 requested_project_id=requested_project_id,
             )
         except Exception:  # noqa: BLE001
             return {
                 "user_id": current_user.user_id,
+                "workspace_id": "default",
                 "project_id": "default",
             }
     return {
         "user_id": "anonymous",
+        "workspace_id": "default",
         "project_id": "default",
     }
 
@@ -320,6 +336,9 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     enterprise_agent_owner_repository = SQLiteAgentOwnerRepository(
         db_path=enterprise_db_path
     )
+    enterprise_workspace_project_repository = SQLiteWorkspaceProjectRepository(
+        db_path=enterprise_db_path
+    )
     user_service = UserService(
         user_repository=enterprise_user_repository,
         project_repository=enterprise_project_repository,
@@ -333,6 +352,7 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     ownership_service = OwnershipService(
         user_service=user_service,
         project_repository=enterprise_project_repository,
+        workspace_project_repository=enterprise_workspace_project_repository,
         document_owner_repository=enterprise_document_owner_repository,
         conversation_owner_repository=enterprise_conversation_owner_repository,
         memory_owner_repository=enterprise_memory_owner_repository,
@@ -429,6 +449,10 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     shared_container.register(
         "enterprise_agent_owner_repository",
         enterprise_agent_owner_repository,
+    )
+    shared_container.register(
+        "enterprise_workspace_project_repository",
+        enterprise_workspace_project_repository,
     )
     shared_container.register("user_service", user_service)
     shared_container.register("password_hasher", password_hasher)

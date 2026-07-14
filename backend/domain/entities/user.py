@@ -16,6 +16,7 @@ class User:
     google_subject_id: str | None
     avatar_url: str | None
     auth_provider: str
+    active_workspace_id: str | None
     active_project_id: str | None
     created_at: datetime
     updated_at: datetime
@@ -31,6 +32,7 @@ class User:
         google_subject_id: str | None = None,
         avatar_url: str | None = None,
         auth_provider: str = "local",
+        active_workspace_id: str | None = None,
         active_project_id: str | None = None,
         is_active: bool = True,
     ) -> "User":
@@ -43,6 +45,7 @@ class User:
             google_subject_id=google_subject_id,
             avatar_url=avatar_url,
             auth_provider=auth_provider,
+            active_workspace_id=active_workspace_id,
             active_project_id=active_project_id,
             created_at=now,
             updated_at=now,

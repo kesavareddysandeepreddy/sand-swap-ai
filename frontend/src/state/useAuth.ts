@@ -4,12 +4,14 @@ import { apiClient, ApiError } from "../api/client";
 import type {
     AuthTokenPair,
     AuthUserProfile,
+    ProjectRecord,
     WorkspaceRecord,
 } from "../types/api";
 import { loadAuthSession, persistAuthSession } from "./authStorage";
 import { getAnonymousSessionId, rotateAnonymousSessionId } from "./ownerContext";
 
 const WORKSPACE_STORAGE_KEY = "sand-swap-active-workspace-v1";
+const PROJECT_STORAGE_KEY = "sand-swap-active-project-v1";
 
 export const useAuth = () => {
     const [anonymousSessionId, setAnonymousSessionId] = useState<string>(() =>
@@ -28,7 +30,9 @@ export const useAuth = () => {
     });
     const [profile, setProfile] = useState<AuthUserProfile | null>(null);
     const [workspaces, setWorkspaces] = useState<WorkspaceRecord[]>([]);
+    const [projects, setProjects] = useState<ProjectRecord[]>([]);
     const [isWorkspaceLoading, setIsWorkspaceLoading] = useState<boolean>(false);
+    const [isProjectLoading, setIsProjectLoading] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -36,10 +40,13 @@ export const useAuth = () => {
         setSession(null);
         setProfile(null);
         setWorkspaces([]);
+        setProjects([]);
         persistAuthSession(null);
         apiClient.setAuthToken(null);
         apiClient.setWorkspaceId(null);
+        apiClient.setProjectId(null);
         window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+        window.localStorage.removeItem(PROJECT_STORAGE_KEY);
         setAnonymousSessionId(rotateAnonymousSessionId());
     }, []);
 
@@ -75,11 +82,17 @@ export const useAuth = () => {
         setError(null);
         try {
             const me = await apiClient.getCurrentUser();
-            apiClient.setWorkspaceId(me.project_id ?? null);
-            if (me.project_id) {
-                window.localStorage.setItem(WORKSPACE_STORAGE_KEY, me.project_id);
+            apiClient.setWorkspaceId(me.workspace_id ?? null);
+            apiClient.setProjectId(me.project_id ?? null);
+            if (me.workspace_id) {
+                window.localStorage.setItem(WORKSPACE_STORAGE_KEY, me.workspace_id);
             } else {
                 window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+            }
+            if (me.project_id) {
+                window.localStorage.setItem(PROJECT_STORAGE_KEY, me.project_id);
+            } else {
+                window.localStorage.removeItem(PROJECT_STORAGE_KEY);
             }
             setProfile(me);
             return me;
@@ -88,11 +101,17 @@ export const useAuth = () => {
                 const refreshed = await refreshSession();
                 if (refreshed) {
                     const me = await apiClient.getCurrentUser();
-                    apiClient.setWorkspaceId(me.project_id ?? null);
-                    if (me.project_id) {
-                        window.localStorage.setItem(WORKSPACE_STORAGE_KEY, me.project_id);
+                    apiClient.setWorkspaceId(me.workspace_id ?? null);
+                    apiClient.setProjectId(me.project_id ?? null);
+                    if (me.workspace_id) {
+                        window.localStorage.setItem(WORKSPACE_STORAGE_KEY, me.workspace_id);
                     } else {
                         window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+                    }
+                    if (me.project_id) {
+                        window.localStorage.setItem(PROJECT_STORAGE_KEY, me.project_id);
+                    } else {
+                        window.localStorage.removeItem(PROJECT_STORAGE_KEY);
                     }
                     setProfile(me);
                     return me;
@@ -125,7 +144,7 @@ export const useAuth = () => {
                     previous
                         ? {
                             ...previous,
-                            project_id: active.id,
+                            workspace_id: active.id,
                         }
                         : previous
                 );
@@ -133,6 +152,35 @@ export const useAuth = () => {
             return items;
         } finally {
             setIsWorkspaceLoading(false);
+        }
+    }, [session?.access_token]);
+
+    const loadProjects = useCallback(async () => {
+        if (!session?.access_token) {
+            setProjects([]);
+            return [];
+        }
+
+        setIsProjectLoading(true);
+        try {
+            const items = await apiClient.listProjects();
+            setProjects(items);
+            const active = items.find((project) => project.is_active) ?? null;
+            if (active) {
+                apiClient.setProjectId(active.id);
+                window.localStorage.setItem(PROJECT_STORAGE_KEY, active.id);
+                setProfile((previous) =>
+                    previous
+                        ? {
+                            ...previous,
+                            project_id: active.id,
+                        }
+                        : previous
+                );
+            }
+            return items;
+        } finally {
+            setIsProjectLoading(false);
         }
     }, [session?.access_token]);
 
@@ -144,6 +192,7 @@ export const useAuth = () => {
                 applySession(tokens);
                 await loadProfile();
                 await loadWorkspaces();
+                await loadProjects();
                 return true;
             } catch (err) {
                 const message =
@@ -152,7 +201,7 @@ export const useAuth = () => {
                 return false;
             }
         },
-        [applySession, loadProfile, loadWorkspaces]
+        [applySession, loadProfile, loadProjects, loadWorkspaces]
     );
 
     const loginWithGoogleCode = useCallback(
@@ -166,6 +215,7 @@ export const useAuth = () => {
                 applySession(tokens);
                 await loadProfile();
                 await loadWorkspaces();
+                await loadProjects();
                 return true;
             } catch (err) {
                 const message =
@@ -174,7 +224,7 @@ export const useAuth = () => {
                 return false;
             }
         },
-        [applySession, loadProfile, loadWorkspaces]
+        [applySession, loadProfile, loadProjects, loadWorkspaces]
     );
 
     const signInWithGooglePopup = useCallback(async () => {
@@ -229,6 +279,7 @@ export const useAuth = () => {
             applySession(payload);
             await loadProfile();
             await loadWorkspaces();
+            await loadProjects();
             try {
                 popup.close();
             } catch {
@@ -250,7 +301,7 @@ export const useAuth = () => {
             }
             return false;
         }
-    }, [applySession, loadProfile, loadWorkspaces]);
+    }, [applySession, loadProfile, loadProjects, loadWorkspaces]);
 
     const logout = useCallback(async () => {
         const activeSession = loadAuthSession();
@@ -287,11 +338,22 @@ export const useAuth = () => {
         void loadWorkspaces();
     }, [loadWorkspaces, session?.access_token]);
 
+    useEffect(() => {
+        if (!session?.access_token) {
+            setProjects([]);
+            setIsProjectLoading(false);
+            return;
+        }
+        void loadProjects();
+    }, [loadProjects, session?.access_token, profile?.workspace_id]);
+
     const switchWorkspace = useCallback(
         async (workspaceId: string) => {
             const workspace = await apiClient.switchWorkspace(workspaceId);
             apiClient.setWorkspaceId(workspace.id);
             window.localStorage.setItem(WORKSPACE_STORAGE_KEY, workspace.id);
+            apiClient.setProjectId(null);
+            window.localStorage.removeItem(PROJECT_STORAGE_KEY);
             setWorkspaces((previous) =>
                 previous.map((item) => ({
                     ...item,
@@ -302,13 +364,15 @@ export const useAuth = () => {
                 previous
                     ? {
                         ...previous,
-                        project_id: workspace.id,
+                        workspace_id: workspace.id,
+                        project_id: null,
                     }
                     : previous
             );
+            await loadProjects();
             return workspace;
         },
-        []
+        [loadProjects]
     );
 
     const createWorkspace = useCallback(
@@ -320,6 +384,8 @@ export const useAuth = () => {
             });
             apiClient.setWorkspaceId(workspace.id);
             window.localStorage.setItem(WORKSPACE_STORAGE_KEY, workspace.id);
+            apiClient.setProjectId(null);
+            window.localStorage.removeItem(PROJECT_STORAGE_KEY);
             setWorkspaces((previous) => {
                 const next = previous.filter((item) => item.id !== workspace.id);
                 return [
@@ -331,13 +397,15 @@ export const useAuth = () => {
                 previous
                     ? {
                         ...previous,
-                        project_id: workspace.id,
+                        workspace_id: workspace.id,
+                        project_id: null,
                     }
                     : previous
             );
+            await loadProjects();
             return workspace;
         },
-        []
+        [loadProjects]
     );
 
     const renameWorkspace = useCallback(async (workspaceId: string, name: string) => {
@@ -361,17 +429,101 @@ export const useAuth = () => {
             } else {
                 window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
             }
+            apiClient.setProjectId(null);
+            window.localStorage.removeItem(PROJECT_STORAGE_KEY);
             setProfile((previous) =>
                 previous
                     ? {
                         ...previous,
-                        project_id: active?.id ?? null,
+                        workspace_id: active?.id ?? null,
+                        project_id: null,
                     }
                     : previous
             );
+            await loadProjects();
         },
-        [loadWorkspaces]
+        [loadProjects, loadWorkspaces]
     );
+
+    const switchProject = useCallback(async (projectId: string) => {
+        const project = await apiClient.switchProject(projectId);
+        apiClient.setProjectId(project.id);
+        window.localStorage.setItem(PROJECT_STORAGE_KEY, project.id);
+        setProjects((previous) =>
+            previous.map((item) => ({
+                ...item,
+                is_active: item.id === project.id,
+            }))
+        );
+        setProfile((previous) =>
+            previous
+                ? {
+                    ...previous,
+                    workspace_id: project.workspace_id,
+                    project_id: project.id,
+                }
+                : previous
+        );
+        return project;
+    }, []);
+
+    const createProject = useCallback(async (name: string, description = "") => {
+        const project = await apiClient.createProject({
+            name,
+            description,
+            set_active: true,
+        });
+        apiClient.setProjectId(project.id);
+        window.localStorage.setItem(PROJECT_STORAGE_KEY, project.id);
+        setProjects((previous) => {
+            const next = previous.filter((item) => item.id !== project.id);
+            return [
+                { ...project, is_active: true },
+                ...next.map((item) => ({ ...item, is_active: false })),
+            ];
+        });
+        setProfile((previous) =>
+            previous
+                ? {
+                    ...previous,
+                    workspace_id: project.workspace_id,
+                    project_id: project.id,
+                }
+                : previous
+        );
+        return project;
+    }, []);
+
+    const renameProject = useCallback(async (projectId: string, name: string) => {
+        const project = await apiClient.renameProject(projectId, { name });
+        setProjects((previous) =>
+            previous.map((item) =>
+                item.id === project.id ? { ...item, name: project.name } : item
+            )
+        );
+        return project;
+    }, []);
+
+    const deleteProject = useCallback(async (projectId: string) => {
+        await apiClient.deleteProject(projectId);
+        const next = await loadProjects();
+        const active = next.find((item) => item.is_active) ?? null;
+        apiClient.setProjectId(active?.id ?? null);
+        if (active?.id) {
+            window.localStorage.setItem(PROJECT_STORAGE_KEY, active.id);
+        } else {
+            window.localStorage.removeItem(PROJECT_STORAGE_KEY);
+        }
+        setProfile((previous) =>
+            previous
+                ? {
+                    ...previous,
+                    workspace_id: active?.workspace_id ?? previous.workspace_id ?? null,
+                    project_id: active?.id ?? null,
+                }
+                : previous
+        );
+    }, [loadProjects]);
 
     const isAuthenticated = useMemo(
         () => Boolean(session?.access_token && profile?.user_id),
@@ -392,14 +544,21 @@ export const useAuth = () => {
         session,
         profile,
         workspaces,
-        activeWorkspaceId: profile?.project_id ?? null,
+        projects,
+        activeWorkspaceId: profile?.workspace_id ?? null,
+        activeProjectId: profile?.project_id ?? null,
         isWorkspaceLoading,
+        isProjectLoading,
         anonymousUserId: anonymousSessionId,
         effectiveUserId,
         createWorkspace,
+        createProject,
         renameWorkspace,
+        renameProject,
         deleteWorkspace,
+        deleteProject,
         switchWorkspace,
+        switchProject,
         loginWithPassword,
         loginWithGoogleCode,
         signInWithGooglePopup,

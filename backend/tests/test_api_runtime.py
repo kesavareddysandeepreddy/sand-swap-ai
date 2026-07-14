@@ -25,9 +25,10 @@ class FakeChatService:
         user_id: str,
         message: str,
         conversation_id: str | None = None,
+        workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> dict[str, str]:
-        _ = project_id
+        _ = (workspace_id, project_id)
         return {
             "response": f"echo:{message}",
             "conversation_id": conversation_id or "default-conversation",
@@ -43,14 +44,24 @@ class FakeOwnershipService:
             (),
             {
                 "get_active_project_id": lambda _self, _user_id: "workspace-user-1",
+                "get_active_workspace_project_id": lambda _self, _user_id: (
+                    "project-user-1"
+                ),
                 "set_active_project_id": lambda _self, _user_id, _project_id: None,
+                "set_active_workspace_project_id": lambda _self, _user_id, _project_id: (
+                    None
+                ),
                 "get_user": lambda _self, _user_id: object(),
             },
         )()
 
     def resolve_request_context(self, *, user_id: str) -> dict[str, str]:
         _ = user_id
-        return {"user_id": "user-1", "project_id": "workspace-user-1"}
+        return {
+            "user_id": "user-1",
+            "workspace_id": "workspace-user-1",
+            "project_id": "project-user-1",
+        }
 
     def get_active_project_for_user(self, user_id: str):
         _ = user_id

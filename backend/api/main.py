@@ -34,6 +34,7 @@ class TokenValidationMiddleware(BaseHTTPMiddleware):
         current_user = CurrentUser.anonymous()
         ownership_context = {
             "user_id": "anonymous",
+            "workspace_id": "default",
             "project_id": "default",
         }
 
@@ -44,19 +45,26 @@ class TokenValidationMiddleware(BaseHTTPMiddleware):
                     claims = token_service.verify_access_token(token)
                     current_user = CurrentUser.authenticated(claims)
                     if current_user.user_id is not None:
-                        requested_project_id = request.headers.get("X-Workspace-Id")
+                        requested_workspace_id = request.headers.get("X-Workspace-Id")
+                        if requested_workspace_id is not None:
+                            requested_workspace_id = (
+                                requested_workspace_id.strip() or None
+                            )
+                        requested_project_id = request.headers.get("X-Project-Id")
                         if requested_project_id is not None:
                             requested_project_id = requested_project_id.strip() or None
                         try:
                             ownership_context = (
                                 ownership_service.resolve_request_context(
                                     user_id=current_user.user_id,
+                                    requested_workspace_id=requested_workspace_id,
                                     requested_project_id=requested_project_id,
                                 )
                             )
                         except Exception:  # noqa: BLE001
                             ownership_context = {
                                 "user_id": current_user.user_id,
+                                "workspace_id": "default",
                                 "project_id": "default",
                             }
                 except Exception as exc:  # noqa: BLE001

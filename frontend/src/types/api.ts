@@ -48,6 +48,7 @@ export interface AuthUserProfile {
     user_id: string;
     email: string;
     display_name: string;
+    workspace_id?: string | null;
     project_id?: string | null;
     avatar_url?: string | null;
     auth_provider?: string | null;
@@ -69,6 +70,26 @@ export interface CreateWorkspaceRequest {
 }
 
 export interface RenameWorkspaceRequest {
+    name: string;
+    description?: string | null;
+}
+
+export interface ProjectRecord {
+    id: string;
+    workspace_id: string;
+    name: string;
+    description: string;
+    created_at: string;
+    is_active: boolean;
+}
+
+export interface CreateProjectRequest {
+    name: string;
+    description?: string;
+    set_active?: boolean;
+}
+
+export interface RenameProjectRequest {
     name: string;
     description?: string | null;
 }

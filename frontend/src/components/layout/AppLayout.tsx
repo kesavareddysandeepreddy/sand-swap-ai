@@ -45,12 +45,19 @@ export const AppLayout = ({
                 avatarUrl={auth.profile?.avatar_url ?? null}
                 workspaceScopeId={workspaceScopeId}
                 workspaces={auth.workspaces}
+                projects={auth.projects}
                 activeWorkspaceId={auth.activeWorkspaceId}
+                activeProjectId={auth.activeProjectId}
                 isWorkspaceLoading={auth.isWorkspaceLoading}
+                isProjectLoading={auth.isProjectLoading}
                 onSwitchWorkspace={auth.switchWorkspace}
                 onCreateWorkspace={auth.createWorkspace}
                 onRenameWorkspace={auth.renameWorkspace}
                 onDeleteWorkspace={auth.deleteWorkspace}
+                onSwitchProject={auth.switchProject}
+                onCreateProject={auth.createProject}
+                onRenameProject={auth.renameProject}
+                onDeleteProject={auth.deleteProject}
                 onGoogleSignIn={auth.signInWithGooglePopup}
                 onLogout={() => void auth.logout()}
             />

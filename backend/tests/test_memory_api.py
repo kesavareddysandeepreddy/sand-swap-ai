@@ -52,7 +52,26 @@ def _workspace_id(client: TestClient, user_id: str = "user-1") -> str:
     else:
         user_id = existing.id
     service = client.app.state.container.resolve("ownership_service")
-    project = service.get_active_project_for_user(user_id)
+    workspace = service.get_active_project_for_user(user_id)
+    return workspace.id
+
+
+def _project_id(
+    client: TestClient, user_id: str = "user-1", workspace_id: str | None = None
+) -> str:
+    user_service = client.app.state.container.resolve("user_service")
+    email = f"{user_id}@example.com"
+    existing = user_service.get_user_by_email(email)
+    if existing is not None:
+        user_id = existing.id
+    service = client.app.state.container.resolve("ownership_service")
+    resolved_workspace_id = (
+        workspace_id or service.get_active_project_for_user(user_id).id
+    )
+    project = service.get_active_workspace_project_for_user(
+        user_id,
+        workspace_id=resolved_workspace_id,
+    )
     return project.id
 
 
@@ -61,12 +80,14 @@ def test_memory_list_supports_filters_and_pagination(
 ) -> None:
     manager = _manager(runtime_client)
     workspace_id = _workspace_id(runtime_client, "user-1")
+    project_id = _project_id(runtime_client, "user-1", workspace_id)
     manager.remember(
         "user-1",
         "profile",
         "name",
         "Sandeep",
-        project_id=workspace_id,
+        project_id=project_id,
+        metadata={"workspace_id": workspace_id},
         category="identity",
         importance=0.9,
     )
@@ -76,7 +97,8 @@ def test_memory_list_supports_filters_and_pagination(
         "preference",
         "favorite_ide",
         "Cursor",
-        project_id=workspace_id,
+        project_id=project_id,
+        metadata={"workspace_id": workspace_id},
         category="preference",
         importance=0.8,
     )
@@ -86,7 +108,8 @@ def test_memory_list_supports_filters_and_pagination(
         "project",
         "project_name",
         "SandSwap AI",
-        project_id=workspace_id,
+        project_id=project_id,
+        metadata={"workspace_id": workspace_id},
         category="project",
         importance=0.7,
     )
@@ -124,12 +147,14 @@ def test_memory_list_supports_filters_and_pagination(
 def test_memory_get_patch_delete_single(runtime_client: TestClient) -> None:
     manager = _manager(runtime_client)
     workspace_id = _workspace_id(runtime_client, "user-1")
+    project_id = _project_id(runtime_client, "user-1", workspace_id)
     record = manager.remember(
         "user-1",
         "goal",
         "learning_goal",
         "Kubernetes",
-        project_id=workspace_id,
+        project_id=project_id,
+        metadata={"workspace_id": workspace_id},
         category="goal",
         importance=0.85,
     )
@@ -167,12 +192,14 @@ def test_memory_get_patch_delete_single(runtime_client: TestClient) -> None:
 def test_memory_delete_all(runtime_client: TestClient) -> None:
     manager = _manager(runtime_client)
     workspace_id = _workspace_id(runtime_client, "user-1")
+    project_id = _project_id(runtime_client, "user-1", workspace_id)
     manager.remember(
         "user-1",
         "profile",
         "name",
         "Sandeep",
-        project_id=workspace_id,
+        project_id=project_id,
+        metadata={"workspace_id": workspace_id},
         importance=0.9,
     )
     manager.remember(
@@ -180,7 +207,8 @@ def test_memory_delete_all(runtime_client: TestClient) -> None:
         "preference",
         "favorite_ide",
         "Cursor",
-        project_id=workspace_id,
+        project_id=project_id,
+        metadata={"workspace_id": workspace_id},
         importance=0.8,
     )
 
@@ -204,13 +232,16 @@ def test_memory_list_is_isolated_by_authenticated_owner(
 ) -> None:
     manager = _manager(runtime_client)
     own_workspace_id = _workspace_id(runtime_client, "user-a")
+    own_project_id = _project_id(runtime_client, "user-a", own_workspace_id)
     other_workspace_id = _workspace_id(runtime_client, "user-b")
+    other_project_id = _project_id(runtime_client, "user-b", other_workspace_id)
     own = manager.remember(
         "user-a",
         "profile",
         "name",
         "Alice",
-        project_id=own_workspace_id,
+        project_id=own_project_id,
+        metadata={"workspace_id": own_workspace_id},
         importance=0.9,
     )
     other = manager.remember(
@@ -218,7 +249,8 @@ def test_memory_list_is_isolated_by_authenticated_owner(
         "profile",
         "name",
         "Bob",
-        project_id=other_workspace_id,
+        project_id=other_project_id,
+        metadata={"workspace_id": other_workspace_id},
         importance=0.9,
     )
     assert own is not None
@@ -242,13 +274,16 @@ def test_memory_get_denies_cross_user_access(
 ) -> None:
     manager = _manager(runtime_client)
     mine_workspace_id = _workspace_id(runtime_client, "user-a")
+    mine_project_id = _project_id(runtime_client, "user-a", mine_workspace_id)
     other_workspace_id = _workspace_id(runtime_client, "user-b")
+    other_project_id = _project_id(runtime_client, "user-b", other_workspace_id)
     mine = manager.remember(
         "user-a",
         "goal",
         "target",
         "A",
-        project_id=mine_workspace_id,
+        project_id=mine_project_id,
+        metadata={"workspace_id": mine_workspace_id},
         importance=0.9,
     )
     other = manager.remember(
@@ -256,7 +291,8 @@ def test_memory_get_denies_cross_user_access(
         "goal",
         "target",
         "B",
-        project_id=other_workspace_id,
+        project_id=other_project_id,
+        metadata={"workspace_id": other_workspace_id},
         importance=0.9,
     )
     assert mine is not None
@@ -288,6 +324,7 @@ def test_authenticated_user_cannot_access_anonymous_memory(
         "note",
         "legacy",
         project_id="default",
+        metadata={"workspace_id": "default"},
         importance=0.9,
     )
     assert anonymous is not None
@@ -307,12 +344,14 @@ def test_anonymous_user_cannot_access_authenticated_memory(
 ) -> None:
     manager = _manager(runtime_client)
     workspace_id = _workspace_id(runtime_client, "user-a")
+    project_id = _project_id(runtime_client, "user-a", workspace_id)
     authenticated = manager.remember(
         "user-a",
         "fact",
         "note",
         "private",
-        project_id=workspace_id,
+        project_id=project_id,
+        metadata={"workspace_id": workspace_id},
         importance=0.9,
     )
     assert authenticated is not None
@@ -342,7 +381,8 @@ def test_memory_is_scoped_to_active_workspace(runtime_client: TestClient) -> Non
 
     current = runtime_client.get("/auth/session", headers=headers)
     assert current.status_code == 200
-    primary_workspace = current.json()["project_id"]
+    primary_workspace = current.json()["workspace_id"]
+    primary_project = current.json()["project_id"]
 
     create_workspace = runtime_client.post(
         "/auth/workspaces",
@@ -358,19 +398,11 @@ def test_memory_is_scoped_to_active_workspace(runtime_client: TestClient) -> Non
         "fact",
         "primary_key",
         "primary value",
-        project_id=primary_workspace,
-        importance=0.9,
-    )
-    second = manager.remember(
-        "workspace-user",
-        "fact",
-        "secondary_key",
-        "secondary value",
-        project_id=secondary_workspace,
+        project_id=primary_project,
+        metadata={"workspace_id": primary_workspace},
         importance=0.9,
     )
     assert first is not None
-    assert second is not None
 
     primary_list = runtime_client.get("/memory", headers=headers)
     assert primary_list.status_code == 200
@@ -382,6 +414,22 @@ def test_memory_is_scoped_to_active_workspace(runtime_client: TestClient) -> Non
         headers=headers,
     )
     assert switch.status_code == 200
+
+    session_after_switch = runtime_client.get("/auth/session", headers=headers)
+    assert session_after_switch.status_code == 200
+    assert session_after_switch.json()["workspace_id"] == secondary_workspace
+    secondary_project_id = session_after_switch.json()["project_id"]
+
+    second = manager.remember(
+        "workspace-user",
+        "fact",
+        "secondary_key",
+        "secondary value",
+        project_id=secondary_project_id,
+        metadata={"workspace_id": secondary_workspace},
+        importance=0.9,
+    )
+    assert second is not None
 
     secondary_list = runtime_client.get("/memory", headers=headers)
     assert secondary_list.status_code == 200

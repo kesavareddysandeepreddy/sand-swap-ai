@@ -8,6 +8,7 @@ from backend.domain.entities.ownership import (
 )
 from backend.domain.entities.project import Project
 from backend.domain.entities.user import User
+from backend.domain.entities.workspace_project import WorkspaceProject
 
 __all__ = [
     "AgentOwner",
@@ -16,4 +17,5 @@ __all__ = [
     "MemoryOwner",
     "Project",
     "User",
+    "WorkspaceProject",
 ]

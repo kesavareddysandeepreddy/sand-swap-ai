@@ -253,6 +253,7 @@ class LLMMemoryExtractor:
         user_id: str,
         message: str,
         *,
+        workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> list[object]:
         self.logger.info("process() called for user_id=%s", user_id)
@@ -285,7 +286,10 @@ class LLMMemoryExtractor:
                 category=normalized["category"],
                 importance=normalized["importance"],
                 confidence=normalized["confidence"],
-                metadata=normalized["metadata"],
+                metadata={
+                    **normalized["metadata"],
+                    "workspace_id": workspace_id,
+                },
                 tags=normalized["tags"],
             )
             if stored is not None:
@@ -302,6 +306,7 @@ class LLMMemoryExtractor:
                     category=item["category"],
                     importance=item["importance"],
                     confidence=item["confidence"],
+                    metadata={"workspace_id": workspace_id},
                 )
                 if stored is not None:
                     saved.append(stored)

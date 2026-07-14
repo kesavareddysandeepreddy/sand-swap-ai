@@ -98,7 +98,8 @@ def test_documents_are_scoped_to_active_workspace(runtime_client: TestClient) ->
 
     primary = runtime_client.get("/auth/session", headers=headers)
     assert primary.status_code == 200
-    primary_workspace = primary.json()["project_id"]
+    primary_workspace = primary.json()["workspace_id"]
+    primary_project = primary.json()["project_id"]
 
     secondary = runtime_client.post(
         "/auth/workspaces",
@@ -139,6 +140,13 @@ def test_documents_are_scoped_to_active_workspace(runtime_client: TestClient) ->
         headers=headers,
     )
     assert switch_back.status_code == 200
+
+    switch_project = runtime_client.post(
+        "/auth/projects/switch",
+        json={"project_id": primary_project},
+        headers=headers,
+    )
+    assert switch_project.status_code == 200
 
     list_primary = runtime_client.get("/documents", headers=headers)
     assert list_primary.status_code == 200

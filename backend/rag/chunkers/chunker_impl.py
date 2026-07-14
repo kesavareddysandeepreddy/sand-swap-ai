@@ -29,6 +29,7 @@ def _build_chunk(
             "source_type", document.metadata.get("category")
         ),
         "category": document.metadata.get("category"),
+        "workspace_id": document.metadata.get("workspace_id"),
         "author": document.metadata.get("author"),
         "created": document.metadata.get("created"),
         "modified": document.metadata.get("modified"),

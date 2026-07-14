@@ -165,14 +165,45 @@ class UserService:
         )
 
     def get_active_project_id(self, user_id: str) -> str | None:
-        """Return the persisted active project id for a user, if any."""
+        """Return the persisted active workspace id for a user, if any."""
+        user = self.user_repository.get_by_id(user_id)
+        if user is None:
+            return None
+        return user.active_workspace_id
+
+    def set_active_project_id(self, user_id: str, project_id: str | None) -> User:
+        """Persist active workspace id for a user account."""
+        current = self.user_repository.get_by_id(user_id)
+        if current is None:
+            raise ValueError(f"User not found: {user_id}")
+
+        updated = replace(
+            current,
+            active_workspace_id=project_id,
+            updated_at=datetime.now(UTC),
+        )
+
+        update_fn = getattr(self.user_repository, "update", None)
+        if callable(update_fn):
+            result = update_fn(updated)
+            return result if isinstance(result, User) else updated
+
+        self.user_repository.save(updated)
+        return updated
+
+    def get_active_workspace_project_id(self, user_id: str) -> str | None:
+        """Return the persisted active nested project id for a user, if any."""
         user = self.user_repository.get_by_id(user_id)
         if user is None:
             return None
         return user.active_project_id
 
-    def set_active_project_id(self, user_id: str, project_id: str | None) -> User:
-        """Persist active project id for a user account."""
+    def set_active_workspace_project_id(
+        self,
+        user_id: str,
+        project_id: str | None,
+    ) -> User:
+        """Persist active nested project id for a user account."""
         current = self.user_repository.get_by_id(user_id)
         if current is None:
             raise ValueError(f"User not found: {user_id}")

@@ -46,8 +46,8 @@ class ChatService(BaseService):
         self.ownership_service = ownership_service
         self.logger = LoggerFactory.get_logger("ChatService")
 
-    def _resolve_default_project_for_user(self, user_id: str) -> str:
-        """Resolve a user's default project id with a legacy-safe fallback."""
+    def _resolve_default_workspace_for_user(self, user_id: str) -> str:
+        """Resolve a user's default workspace id with a legacy-safe fallback."""
         if self.ownership_service is None:
             return "default"
         try:
@@ -68,33 +68,45 @@ class ChatService(BaseService):
             return "default"
 
     def _ensure_conversation_ownership(
-        self, user_id: str, conversation_id: str
+        self,
+        user_id: str,
+        conversation_id: str,
+        *,
+        workspace_id: str | None,
+        project_id: str | None,
     ) -> None:
         """Persist conversation ownership and project association safeguards."""
         if self.ownership_service is None:
             return
 
-        resolved_project_id = self._resolve_default_project_for_user(user_id)
+        resolved_workspace_id = (
+            workspace_id or self._resolve_default_workspace_for_user(user_id)
+        )
+        resolved_project_id = project_id or "default"
         try:
             self.ownership_service.assign_project_owner(
-                project_id=resolved_project_id,
+                project_id=resolved_workspace_id,
                 user_id=user_id,
             )
             self.ownership_service.assign_conversation_owner(
                 conversation_id=conversation_id,
                 user_id=user_id,
+                workspace_id=resolved_workspace_id,
+                project_id=resolved_project_id,
             )
             return
         except Exception:  # noqa: BLE001
-            fallback_project_id = "default"
+            fallback_workspace_id = "default"
             try:
                 self.ownership_service.assign_project_owner(
-                    project_id=fallback_project_id,
+                    project_id=fallback_workspace_id,
                     user_id=user_id,
                 )
                 self.ownership_service.assign_conversation_owner(
                     conversation_id=conversation_id,
                     user_id=user_id,
+                    workspace_id=fallback_workspace_id,
+                    project_id=resolved_project_id,
                 )
             except Exception:  # noqa: BLE001
                 return
@@ -117,6 +129,7 @@ class ChatService(BaseService):
         user_id: str,
         message: str,
         conversation_id: str | None = None,
+        workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> dict[str, Any]:
         """Process a user message and return the assistant response."""
@@ -136,7 +149,12 @@ class ChatService(BaseService):
             user_id, conversation_id
         )
         if existing_conversation is None:
-            self._ensure_conversation_ownership(user_id, conversation.id)
+            self._ensure_conversation_ownership(
+                user_id,
+                conversation.id,
+                workspace_id=workspace_id,
+                project_id=project_id,
+            )
         conversation.add_message("user", message)
         self.session_manager.conversation_store.save_conversation(conversation)
 
@@ -144,6 +162,7 @@ class ChatService(BaseService):
             user_id=user_id,
             conversation_id=conversation.id,
             current_message=message,
+            workspace_id=workspace_id,
             project_id=project_id,
         )
         self.logger.info(
@@ -176,6 +195,7 @@ class ChatService(BaseService):
             self._extract_memories_after_response(
                 user_id,
                 message,
+                workspace_id=workspace_id,
                 project_id=project_id,
             )
         )
@@ -201,6 +221,7 @@ class ChatService(BaseService):
         user_id: str,
         message: str,
         *,
+        workspace_id: str | None = None,
         project_id: str | None = None,
     ) -> None:
         """Extract long-term memories after the response is returned."""
@@ -209,6 +230,7 @@ class ChatService(BaseService):
                 self.memory_extractor.process,
                 user_id,
                 message,
+                workspace_id=workspace_id,
                 project_id=project_id,
             )
             self.logger.info(

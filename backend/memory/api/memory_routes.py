@@ -15,7 +15,7 @@ from backend.api.dependencies import (
 )
 from backend.memory.core.memory_manager import MemoryManager
 from backend.memory.models.memory_record import MemoryRecord
-from backend.services import resolve_owner_id, resolve_workspace_id
+from backend.services import resolve_owner_id, resolve_project_id, resolve_workspace_id
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -25,6 +25,7 @@ class MemoryItem(BaseModel):
 
     id: str
     user_id: str
+    workspace_id: str | None
     project_id: str | None
     memory_type: str
     category: str
@@ -68,6 +69,11 @@ def _serialize_memory(memory: MemoryRecord) -> MemoryItem:
     return MemoryItem(
         id=memory.id,
         user_id=memory.user_id,
+        workspace_id=(
+            str(memory.metadata.get("workspace_id"))
+            if memory.metadata.get("workspace_id") is not None
+            else None
+        ),
         project_id=memory.project_id,
         memory_type=memory.memory_type,
         category=memory.category,
@@ -98,11 +104,13 @@ def list_memories(
     """List memories with pagination and filters."""
     owner_id = resolve_owner_id(current_user)
     workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
     memories = [
         memory
         for memory in manager.recall_all()
         if memory.user_id == owner_id
-        and (memory.project_id or "default") == workspace_id
+        and str(memory.metadata.get("workspace_id") or "default") == workspace_id
+        and (memory.project_id or "default") == project_id
     ]
 
     if search:
@@ -151,11 +159,13 @@ def get_memory(
     """Get one memory by id."""
     owner_id = resolve_owner_id(current_user)
     workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
     memory = manager.store.get(memory_id)
     if (
         memory is None
         or memory.user_id != owner_id
-        or (memory.project_id or "default") != workspace_id
+        or str(memory.metadata.get("workspace_id") or "default") != workspace_id
+        or (memory.project_id or "default") != project_id
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -175,11 +185,13 @@ def update_memory(
     """Update editable memory fields."""
     owner_id = resolve_owner_id(current_user)
     workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
     memory = manager.store.get(memory_id)
     if (
         memory is None
         or memory.user_id != owner_id
-        or (memory.project_id or "default") != workspace_id
+        or str(memory.metadata.get("workspace_id") or "default") != workspace_id
+        or (memory.project_id or "default") != project_id
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -210,11 +222,13 @@ def delete_memory(
     """Delete one memory by id."""
     owner_id = resolve_owner_id(current_user)
     workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
     memory = manager.store.get(memory_id)
     if (
         memory is None
         or memory.user_id != owner_id
-        or (memory.project_id or "default") != workspace_id
+        or str(memory.metadata.get("workspace_id") or "default") != workspace_id
+        or (memory.project_id or "default") != project_id
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -238,11 +252,13 @@ def delete_all_memories(
     """Delete all memories from the store."""
     owner_id = resolve_owner_id(current_user)
     workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
     all_memories = [
         memory
         for memory in manager.recall_all()
         if memory.user_id == owner_id
-        and (memory.project_id or "default") == workspace_id
+        and str(memory.metadata.get("workspace_id") or "default") == workspace_id
+        and (memory.project_id or "default") == project_id
     ]
     deleted = 0
     for memory in all_memories:

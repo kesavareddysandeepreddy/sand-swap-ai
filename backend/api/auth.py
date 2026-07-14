@@ -96,6 +96,7 @@ class CurrentUserResponse(BaseModel):
     email: str
     display_name: str
     avatar_url: str | None = None
+    workspace_id: str | None = None
     project_id: str | None = None
     auth_provider: str | None = None
     google_subject_id: str | None = None
@@ -132,6 +133,38 @@ class SwitchWorkspaceRequest(BaseModel):
     workspace_id: str = Field(..., min_length=1)
 
 
+class ProjectResponse(BaseModel):
+    """Nested project payload used by management endpoints."""
+
+    id: str
+    workspace_id: str
+    name: str
+    description: str
+    created_at: str
+    is_active: bool
+
+
+class CreateProjectRequest(BaseModel):
+    """Create-project request payload."""
+
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    set_active: bool = True
+
+
+class RenameProjectRequest(BaseModel):
+    """Rename-project request payload."""
+
+    name: str = Field(..., min_length=1)
+    description: str | None = None
+
+
+class SwitchProjectRequest(BaseModel):
+    """Switch-active-project request payload."""
+
+    project_id: str = Field(..., min_length=1)
+
+
 def _to_workspace_response(
     *,
     workspace,
@@ -143,6 +176,21 @@ def _to_workspace_response(
         description=workspace.description,
         created_at=workspace.created_at.isoformat(),
         is_active=workspace.id == active_workspace_id,
+    )
+
+
+def _to_project_response(
+    *,
+    project,
+    active_project_id: str,
+) -> ProjectResponse:
+    return ProjectResponse(
+        id=project.id,
+        workspace_id=project.workspace_id,
+        name=project.name,
+        description=project.description,
+        created_at=project.created_at.isoformat(),
+        is_active=project.id == active_project_id,
     )
 
 
@@ -267,6 +315,7 @@ def me(
         email=user.email,
         display_name=user.display_name,
         avatar_url=user.avatar_url,
+        workspace_id=user.active_workspace_id or ownership_context.get("workspace_id"),
         project_id=user.active_project_id or ownership_context.get("project_id"),
         auth_provider=user.auth_provider,
         google_subject_id=user.google_subject_id,
@@ -438,6 +487,8 @@ def session_context(
         "email": user.email,
         "display_name": user.display_name,
         "avatar_url": user.avatar_url,
+        "workspace_id": user.active_workspace_id
+        or ownership_context.get("workspace_id", "default"),
         "project_id": user.active_project_id
         or ownership_context.get("project_id", "default"),
     }
@@ -593,4 +644,183 @@ def switch_workspace(
     return _to_workspace_response(
         workspace=workspace,
         active_workspace_id=workspace.id,
+    )
+
+
+@router.get("/projects", response_model=list[ProjectResponse])
+def list_projects(
+    current_user: RequiredCurrentUserDependency,
+    ownership_context: OwnershipContextDependency,
+    ownership_service: OwnershipService = Depends(get_ownership_service),
+) -> list[ProjectResponse]:
+    """List all nested projects for the active workspace."""
+    user_id = current_user.user_id
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    workspace_id = ownership_context.get("workspace_id", "default")
+    active_project = ownership_service.get_active_workspace_project_for_user(
+        user_id,
+        workspace_id=workspace_id,
+    )
+    projects = ownership_service.list_projects_for_workspace(
+        user_id=user_id,
+        workspace_id=workspace_id,
+    )
+    return [
+        _to_project_response(
+            project=project,
+            active_project_id=active_project.id,
+        )
+        for project in projects
+    ]
+
+
+@router.post("/projects", response_model=ProjectResponse)
+def create_project(
+    payload: CreateProjectRequest,
+    current_user: RequiredCurrentUserDependency,
+    ownership_context: OwnershipContextDependency,
+    ownership_service: OwnershipService = Depends(get_ownership_service),
+) -> ProjectResponse:
+    """Create a nested project inside the active workspace."""
+    user_id = current_user.user_id
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    workspace_id = ownership_context.get("workspace_id", "default")
+    project = ownership_service.create_project_for_workspace(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        name=payload.name.strip(),
+        description=payload.description.strip(),
+        set_active=payload.set_active,
+    )
+    active_project = ownership_service.get_active_workspace_project_for_user(
+        user_id,
+        workspace_id=workspace_id,
+    )
+    return _to_project_response(
+        project=project,
+        active_project_id=active_project.id,
+    )
+
+
+@router.patch("/projects/{project_id}", response_model=ProjectResponse)
+def rename_project(
+    project_id: str,
+    payload: RenameProjectRequest,
+    current_user: RequiredCurrentUserDependency,
+    ownership_context: OwnershipContextDependency,
+    ownership_service: OwnershipService = Depends(get_ownership_service),
+) -> ProjectResponse:
+    """Rename a nested project inside the active workspace."""
+    user_id = current_user.user_id
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    workspace_id = ownership_context.get("workspace_id", "default")
+    try:
+        project = ownership_service.rename_project_for_workspace(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            name=payload.name.strip(),
+            description=(payload.description.strip() if payload.description else None),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    active_project = ownership_service.get_active_workspace_project_for_user(
+        user_id,
+        workspace_id=workspace_id,
+    )
+    return _to_project_response(
+        project=project,
+        active_project_id=active_project.id,
+    )
+
+
+@router.delete("/projects/{project_id}")
+def delete_project(
+    project_id: str,
+    current_user: RequiredCurrentUserDependency,
+    ownership_context: OwnershipContextDependency,
+    ownership_service: OwnershipService = Depends(get_ownership_service),
+) -> dict[str, bool]:
+    """Delete a nested project in the active workspace."""
+    user_id = current_user.user_id
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    workspace_id = ownership_context.get("workspace_id", "default")
+    try:
+        deleted = ownership_service.delete_project_for_workspace(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = (
+            status.HTTP_400_BAD_REQUEST
+            if detail == "Cannot delete the last project"
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+    return {"deleted": True}
+
+
+@router.post("/projects/switch", response_model=ProjectResponse)
+def switch_project(
+    payload: SwitchProjectRequest,
+    current_user: RequiredCurrentUserDependency,
+    ownership_context: OwnershipContextDependency,
+    ownership_service: OwnershipService = Depends(get_ownership_service),
+) -> ProjectResponse:
+    """Switch the active nested project inside the current workspace."""
+    user_id = current_user.user_id
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    workspace_id = ownership_context.get("workspace_id", "default")
+    try:
+        project = ownership_service.set_active_workspace_project_for_user(
+            user_id,
+            workspace_id=workspace_id,
+            project_id=payload.project_id.strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    return _to_project_response(
+        project=project,
+        active_project_id=project.id,
     )

@@ -12,6 +12,7 @@ from backend.domain.entities.ownership import (
 )
 from backend.domain.entities.project import Project
 from backend.domain.entities.user import User
+from backend.domain.entities.workspace_project import WorkspaceProject
 
 
 class UserRepository(ABC):
@@ -64,6 +65,45 @@ class ProjectRepository(ABC):
     @abstractmethod
     def list_by_owner(self, owner_id: str) -> list[Project]:
         """List projects owned by a user."""
+        raise NotImplementedError
+
+
+class WorkspaceProjectRepository(ABC):
+    """Persistence contract for projects nested within a workspace."""
+
+    @abstractmethod
+    def create(self, project: WorkspaceProject) -> WorkspaceProject:
+        """Create a new workspace project record."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def save(self, project: WorkspaceProject) -> None:
+        """Create or update a workspace project record."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_by_id(self, project_id: str) -> WorkspaceProject | None:
+        """Fetch a workspace project by identifier."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def update(self, project: WorkspaceProject) -> WorkspaceProject:
+        """Update an existing workspace project record."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def delete(self, project_id: str) -> bool:
+        """Delete a workspace project by identifier."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def list_by_workspace(
+        self,
+        workspace_id: str,
+        *,
+        owner_id: str | None = None,
+    ) -> list[WorkspaceProject]:
+        """List projects nested under a workspace."""
         raise NotImplementedError
 
 
