@@ -10,6 +10,12 @@ from uuid import uuid4
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from backend.agents.base import GeneralChatAgent
+from backend.agents.execution import AgentExecutor
+from backend.agents.planner import PlannerAgent
+from backend.agents.registry import AgentRegistry
+from backend.agents.runtime import AgentRuntime
+from backend.agents.tool_router import ToolRouter
 from backend.auth import (
     AuthService,
     CurrentUser,
@@ -27,10 +33,29 @@ from backend.config.settings import Settings
 from backend.core.container.container import Container
 from backend.core.logging.logger import LoggerFactory
 from backend.core.registry import registry
+from backend.knowledge.knowledge_context import KnowledgeContextBuilder
+from backend.knowledge.knowledge_index import KnowledgeIndex
+from backend.knowledge.knowledge_registry import KnowledgeRegistry
+from backend.knowledge.knowledge_repository import InMemoryKnowledgeRepository
+from backend.knowledge.knowledge_service import KnowledgeService
 from backend.llm.client import OllamaClient
+from backend.mcp.capabilities import CapabilityDiscovery
+from backend.mcp.client import MCPClient
+from backend.mcp.discovery import MCPDiscoveryService
+from backend.mcp.registry import MCPRegistry
+from backend.mcp.session import MCPSessionManager
 from backend.memory.core.memory_manager import MemoryManager
 from backend.memory.extractors.llm_memory_extractor import LLMMemoryExtractor
 from backend.memory.stores.sqlite.sqlite_store import SQLiteMemoryStore
+from backend.multimodal.attachment_router import AttachmentRouter
+from backend.multimodal.image_cache import InMemoryImageCache
+from backend.multimodal.multimodal_context import AttachmentContextBuilder
+from backend.multimodal.pipeline.processor import MultimodalPipeline
+from backend.multimodal.pipeline.stages.attachment_stage import AttachmentStage
+from backend.multimodal.pipeline.stages.context_stage import ContextStage
+from backend.multimodal.pipeline.stages.vision_stage import VisionStage
+from backend.multimodal.providers.ollama_vision_provider import OllamaVisionProvider
+from backend.multimodal.providers.registry import ProviderRegistry
 from backend.persistence.sqlite_enterprise_repositories import (
     SQLiteAgentOwnerRepository,
     SQLiteConversationOwnerRepository,
@@ -54,6 +79,10 @@ from backend.rag.retrievers.semantic_retriever import SemanticRetriever
 from backend.rag.vectorstores.sqlite_vector_store import SQLiteVectorStore
 from backend.services.ownership_service import OwnershipService
 from backend.services.user_service import UserService
+from backend.workflows.engine import WorkflowEngine
+from backend.workflows.executor import WorkflowExecutor
+from backend.workflows.queue import InMemoryWorkflowQueue
+from backend.workflows.registry import WorkflowRegistry
 
 logger = LoggerFactory.get_logger("RuntimeDependencies")
 http_bearer = HTTPBearer(auto_error=False)
@@ -371,6 +400,16 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     session_manager = SessionManager(conversation_store=conversation_store)
     document_repository = SQLiteDocumentRepository(db_path=rag_document_db_path)
     vector_store = SQLiteVectorStore(db_path=rag_vector_db_path)
+    knowledge_repository = InMemoryKnowledgeRepository()
+    knowledge_registry = KnowledgeRegistry()
+    knowledge_index = KnowledgeIndex()
+    knowledge_context_builder = KnowledgeContextBuilder()
+    knowledge_service = KnowledgeService(
+        repository=knowledge_repository,
+        registry=knowledge_registry,
+        index=knowledge_index,
+        context_builder=knowledge_context_builder,
+    )
     parser_factory = ParserFactory(
         ocr_provider=str(config_manager.get("rag.ocr_provider", "tesseract"))
     )
@@ -393,6 +432,7 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         vector_store=vector_store,
         storage_dir=str(Path("data/documents").resolve()),
         ownership_service=ownership_service,
+        knowledge_service=knowledge_service,
         default_chunk_size=int(config_manager.get("rag.chunk_size", 18)),
         default_overlap=int(config_manager.get("rag.chunk_overlap", 4)),
     )
@@ -401,13 +441,112 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         vector_store=vector_store,
     )
     document_retrieval_service = DocumentRetrievalService(retriever=semantic_retriever)
+    ollama_client = OllamaClient(model=default_model)
+    multimodal_supported_types = config_manager.get("multimodal.supported_types", [])
+    if not isinstance(multimodal_supported_types, list):
+        multimodal_supported_types = []
+    attachment_router = AttachmentRouter()
+    provider_registry = ProviderRegistry(
+        vision_provider_name=str(config_manager.get("multimodal.vision_provider", "")),
+        ocr_provider_name=str(config_manager.get("multimodal.ocr_provider", "")),
+    )
+    image_cache = InMemoryImageCache(
+        enabled=bool(config_manager.get("multimodal.cache_enabled", True)),
+        max_image_size=int(config_manager.get("multimodal.max_image_size", 10_485_760)),
+    )
+    ollama_vision_provider = OllamaVisionProvider(
+        ollama_client=ollama_client,
+        image_cache=image_cache,
+        preferred_model=str(config_manager.get("multimodal.vision_provider", "")),
+    )
+    provider_registry.register_provider("ollama_vision", ollama_vision_provider)
+    if ollama_vision_provider.is_available():
+        provider_registry.set_active_provider("vision", "ollama_vision")
+    elif str(config_manager.get("multimodal.vision_provider", "")).strip() in {
+        "",
+        "none",
+        "auto",
+    }:
+        provider_registry.set_active_provider("vision", "")
+    logger.info(
+        "Multimodal vision provider status=%s model=%s",
+        ollama_vision_provider.health().get("status", "unavailable"),
+        ollama_vision_provider.health().get("model_name"),
+    )
+    attachment_context_builder = AttachmentContextBuilder(
+        attachment_router=attachment_router,
+        provider_registry=provider_registry,
+        image_cache=image_cache,
+        supported_types=[
+            str(item) for item in multimodal_supported_types if isinstance(item, str)
+        ],
+    )
+    multimodal_pipeline = MultimodalPipeline(
+        stages=[
+            AttachmentStage(
+                attachment_router=attachment_router,
+                knowledge_service=knowledge_service,
+            ),
+            VisionStage(
+                provider_registry=provider_registry,
+                knowledge_service=knowledge_service,
+            ),
+            ContextStage(
+                knowledge_service=knowledge_service,
+                knowledge_context_builder=knowledge_context_builder,
+            ),
+        ]
+    )
+    tool_router = ToolRouter()
+    tool_router.register_tool("KnowledgeService", knowledge_service)
+    tool_router.register_tool("VisionProvider", ollama_vision_provider)
+    tool_router.register_tool("Memory", memory_manager)
+    tool_router.register_tool("RAG", document_retrieval_service)
+
+    mcp_registry = MCPRegistry()
+    mcp_registry.register_default_servers()
+    mcp_capability_discovery = CapabilityDiscovery()
+    mcp_discovery_service = MCPDiscoveryService(
+        capability_discovery=mcp_capability_discovery
+    )
+    mcp_session_manager = MCPSessionManager()
+    mcp_client = MCPClient(
+        registry=mcp_registry,
+        capability_discovery=mcp_capability_discovery,
+        session_manager=mcp_session_manager,
+    )
+    for server in mcp_registry.list_servers():
+        mcp_discovery_service.discover_from_metadata(server)
+    tool_router.register_tool("MCP", mcp_client)
+
+    planner_agent = PlannerAgent()
+    agent_registry = AgentRegistry()
+    general_chat_agent = GeneralChatAgent(ollama_client=ollama_client)
+    agent_registry.register(general_chat_agent)
+    workflow_registry = WorkflowRegistry()
+    workflow_queue = InMemoryWorkflowQueue()
+    workflow_executor = WorkflowExecutor()
+    workflow_engine = WorkflowEngine(
+        registry=workflow_registry,
+        executor=workflow_executor,
+        queue=workflow_queue,
+    )
+    agent_executor = AgentExecutor(workflow_engine=workflow_engine)
+    agent_runtime = AgentRuntime(
+        registry=agent_registry,
+        planner=planner_agent,
+        tool_router=tool_router,
+        executor=agent_executor,
+    )
+
     context_builder = ContextBuilder(
         conversation_store=conversation_store,
         memory_manager=memory_manager,
         document_retrieval_service=document_retrieval_service,
+        document_ingestion_service=document_ingestion_service,
+        multimodal_pipeline=multimodal_pipeline,
     )
     prompt_builder = PromptBuilder()
-    ollama_client = OllamaClient(model=default_model)
     memory_extractor = LLMMemoryExtractor(model=default_model, memory=memory_manager)
     chat_service = ChatService(
         session_manager=session_manager,
@@ -417,6 +556,7 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         memory_manager=memory_manager,
         memory_extractor=memory_extractor,
         ownership_service=ownership_service,
+        agent_runtime=agent_runtime,
     )
     logger.info(
         "MemoryManager identity runtime=%s chat_service=%s extractor=%s same_chat=%s same_extractor=%s",
@@ -474,6 +614,30 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     shared_container.register("ollama_client", ollama_client)
     shared_container.register("memory_extractor", memory_extractor)
     shared_container.register("chat_service", chat_service)
+    shared_container.register("attachment_router", attachment_router)
+    shared_container.register("multimodal_provider_registry", provider_registry)
+    shared_container.register("attachment_context_builder", attachment_context_builder)
+    shared_container.register("multimodal_pipeline", multimodal_pipeline)
+    shared_container.register("image_cache", image_cache)
+    shared_container.register("knowledge_repository", knowledge_repository)
+    shared_container.register("knowledge_registry", knowledge_registry)
+    shared_container.register("knowledge_index", knowledge_index)
+    shared_container.register("knowledge_context_builder", knowledge_context_builder)
+    shared_container.register("knowledge_service", knowledge_service)
+    shared_container.register("tool_router", tool_router)
+    shared_container.register("planner_agent", planner_agent)
+    shared_container.register("agent_registry", agent_registry)
+    shared_container.register("general_chat_agent", general_chat_agent)
+    shared_container.register("workflow_registry", workflow_registry)
+    shared_container.register("workflow_queue", workflow_queue)
+    shared_container.register("workflow_executor", workflow_executor)
+    shared_container.register("workflow_engine", workflow_engine)
+    shared_container.register("mcp_registry", mcp_registry)
+    shared_container.register("mcp_capability_discovery", mcp_capability_discovery)
+    shared_container.register("mcp_discovery_service", mcp_discovery_service)
+    shared_container.register("mcp_session_manager", mcp_session_manager)
+    shared_container.register("mcp_client", mcp_client)
+    shared_container.register("agent_runtime", agent_runtime)
 
     registry.register("chat_service", chat_service)
     registry.register("memory_manager", memory_manager)

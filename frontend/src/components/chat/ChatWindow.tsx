@@ -1,4 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import type { ChatMessage } from "../../types/chat";
 import { formatTimestamp } from "../../utils/date";
@@ -10,10 +12,23 @@ interface ChatWindowProps {
 
 export const ChatWindow = ({ messages, isSending }: ChatWindowProps) => {
     const bottomAnchorRef = useRef<HTMLDivElement | null>(null);
+    const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
     useEffect(() => {
         bottomAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }, [messages, isSending]);
+
+    const copyMessage = async (messageId: string, content: string) => {
+        try {
+            await navigator.clipboard.writeText(content);
+            setCopiedMessageId(messageId);
+            window.setTimeout(() => {
+                setCopiedMessageId((current) => (current === messageId ? null : current));
+            }, 1200);
+        } catch {
+            setCopiedMessageId(null);
+        }
+    };
 
     if (!messages.length) {
         return (
@@ -35,9 +50,39 @@ export const ChatWindow = ({ messages, isSending }: ChatWindowProps) => {
                 >
                     <header className="message-header">
                         <span>{message.role === "user" ? "You" : "Assistant"}</span>
-                        <time dateTime={message.createdAt}>{formatTimestamp(message.createdAt)}</time>
+                        <div className="message-header-actions">
+                            {message.role === "assistant" ? (
+                                <button
+                                    type="button"
+                                    className="message-copy-button"
+                                    onClick={() => {
+                                        void copyMessage(message.id, message.content);
+                                    }}
+                                >
+                                    {copiedMessageId === message.id ? "Copied" : "Copy"}
+                                </button>
+                            ) : null}
+                            <time dateTime={message.createdAt}>{formatTimestamp(message.createdAt)}</time>
+                        </div>
                     </header>
-                    <p>{message.content}</p>
+                    {message.role === "assistant" ? (
+                        <div className="message-markdown">
+                            <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                    a: ({ children, ...props }) => (
+                                        <a {...props} target="_blank" rel="noreferrer noopener">
+                                            {children}
+                                        </a>
+                                    ),
+                                }}
+                            >
+                                {message.content}
+                            </ReactMarkdown>
+                        </div>
+                    ) : (
+                        <p>{message.content}</p>
+                    )}
                 </article>
             ))}
             {isSending ? (

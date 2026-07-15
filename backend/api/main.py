@@ -88,6 +88,17 @@ def _get_cors_origins() -> list[str]:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize runtime services for the FastAPI application."""
     logger.info("Starting SandSwap AI runtime")
+    configured_oauth_redirect = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "").strip()
+    if configured_oauth_redirect:
+        logger.info(
+            "Google OAuth redirect URI: %s (source=GOOGLE_OAUTH_REDIRECT_URI)",
+            configured_oauth_redirect,
+        )
+    else:
+        logger.info(
+            "Google OAuth redirect URI: http://localhost:8007/auth/oauth/google/callback "
+            "(fallback mode; set GOOGLE_OAUTH_REDIRECT_URI for production)",
+        )
     container = Container()
     container.clear()
     registry.clear()

@@ -45,9 +45,23 @@ class PromptBuilder:
                 lines.append(f"{message.role}: {message.content}")
             lines.append("")
 
+        knowledge_context = getattr(context, "knowledge_context", "")
+        multimodal_context = getattr(context, "multimodal_context", "")
+        injected_context = knowledge_context or multimodal_context
+        if injected_context:
+            lines.append("Multimodal context:")
+            lines.append(injected_context)
+            lines.append("")
+
         lines.append(f"User request: {PromptManager.chat(context.current_message)}")
         return "\n".join(lines)
 
     def build_system_prompt(self) -> str:
         """Return the system prompt for chat responses."""
-        return "You are a helpful assistant. Respond clearly and concisely."
+        return (
+            "You are a helpful assistant. Respond clearly, concisely, and naturally. "
+            "Use Markdown formatting by default: short paragraphs, bullet lists, numbered steps, "
+            "and bold for important entities when useful. "
+            "When relevant memories or retrieved documents are available, use them naturally in your answer "
+            "without always starting with a fixed phrase like 'Based on retrieved documents'."
+        )

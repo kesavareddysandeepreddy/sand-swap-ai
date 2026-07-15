@@ -38,6 +38,7 @@ class DocumentIngestionService:
         vector_store: VectorStore,
         storage_dir: str,
         ownership_service: OwnershipService | None = None,
+        knowledge_service: Any | None = None,
         default_chunk_size: int = 18,
         default_overlap: int = 4,
     ) -> None:
@@ -49,6 +50,7 @@ class DocumentIngestionService:
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.ownership_service = ownership_service
+        self.knowledge_service = knowledge_service
         self.default_chunk_size = default_chunk_size
         self.default_overlap = default_overlap
         self.logger = LoggerFactory.get_logger("DocumentIngestionService")
@@ -246,6 +248,20 @@ class DocumentIngestionService:
             },
         )
         self.repository.save(document)
+        if self.knowledge_service is not None:
+            try:
+                self.knowledge_service.ensure_from_document(
+                    document=document,
+                    workspace_id=resolved_workspace_id,
+                    project_id=resolved_project_id,
+                    conversation_id=None,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.logger.debug(
+                    "Knowledge lifecycle registration skipped for document %s: %s",
+                    document.id,
+                    exc,
+                )
 
         try:
             parser = self.parser_factory.resolve(safe_name)

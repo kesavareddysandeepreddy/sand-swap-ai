@@ -10,6 +10,8 @@ from backend.api.main import app
 from backend.auth.auth_service import AuthService
 from backend.auth.password_hasher import PasswordHasher
 from backend.auth.token_service import TokenService
+from backend.multimodal.models import AttachmentMetadata, VisionAnalysis
+from backend.multimodal.providers.base import VisionProvider
 from backend.persistence.sqlite_enterprise_repositories import (
     SQLiteProjectRepository,
     SQLiteUserRepository,
@@ -328,3 +330,97 @@ def test_chat_model_is_forwarded_from_request(
 
     assert response.status_code == 200
     assert fake_chat.last_model == "qwen2.5:14b"
+
+
+def test_chat_injects_uploaded_image_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORY_DB_PATH", str(tmp_path / "chat-mm-memory.db"))
+    monkeypatch.setenv("RAG_DB_PATH", str(tmp_path / "chat-mm-rag"))
+    monkeypatch.setenv("ENTERPRISE_DB_PATH", str(tmp_path / "chat-mm-enterprise.db"))
+
+    tiny_png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+        b"\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00"
+        b"\x00\x00\x0bIDAT\x08\xd7c\xf8\xff\xff?\x00\x05\xfe\x02"
+        b"\xfeA\x8d\x1d\xcb\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+    class RuntimeFakeVisionProvider(VisionProvider):
+        def is_available(self) -> bool:
+            return True
+
+        def analyze_image(
+            self,
+            image_path: str,
+            metadata: AttachmentMetadata | None = None,
+        ) -> VisionAnalysis:
+            _ = (image_path, metadata)
+            return VisionAnalysis(
+                summary="A breakfast plate.",
+                description="Two fried eggs with toast on a ceramic plate.",
+                objects=["eggs", "toast", "coffee"],
+                ocr_text="",
+                confidence=0.94,
+                provider="test_vision",
+                processing_time=0.01,
+                raw_response={},
+                metadata={"visible_text": "none", "cache_hit": False},
+            )
+
+        def health(self) -> dict[str, object]:
+            return {"status": "available", "model_name": "test_vision"}
+
+    captured_prompts: list[str] = []
+
+    with TestClient(app) as client:
+        chat_service = client.app.state.container.resolve("chat_service")
+        user_service = client.app.state.container.resolve("user_service")
+        token_service = client.app.state.container.resolve("token_service")
+        user_service.create_user(
+            user_id="mm-user-1",
+            email="mm-user-1@example.com",
+            display_name="mm-user-1",
+        )
+        token = token_service.create_access_token("mm-user-1", "mm-user-1@example.com")
+        headers = {"Authorization": f"Bearer {token}"}
+        provider_registry = client.app.state.container.resolve(
+            "multimodal_provider_registry"
+        )
+        provider_registry.register_provider("test_vision", RuntimeFakeVisionProvider())
+        provider_registry.set_active_provider("vision", "test_vision")
+
+        original_generate = chat_service.ollama_client.generate
+
+        def _capture_generate(**kwargs: object) -> str:
+            prompt = str(kwargs.get("prompt", ""))
+            captured_prompts.append(prompt)
+            return "Image looks like breakfast."
+
+        chat_service.ollama_client.generate = _capture_generate
+        try:
+            upload = client.post(
+                "/documents/upload",
+                files={"file": ("plate.png", tiny_png, "image/png")},
+                headers=headers,
+            )
+            assert upload.status_code == 201
+
+            response = client.post(
+                "/chat",
+                json={
+                    "user_id": "mm-user-1",
+                    "message": "What do you see?",
+                    "conversation_id": "mm-conv-1",
+                },
+                headers=headers,
+            )
+        finally:
+            chat_service.ollama_client.generate = original_generate
+
+    assert response.status_code == 200
+    assert captured_prompts
+    assert "Multimodal context:" in captured_prompts[-1]
+    assert "Summary: A breakfast plate." in captured_prompts[-1]
+    assert "Objects: eggs, toast, coffee" in captured_prompts[-1]

@@ -7,6 +7,8 @@ from typing import Any
 
 import requests
 
+from backend.agents.context import AgentExecutionContext
+from backend.agents.runtime import AgentRuntime
 from backend.chat.application.context_builder import ContextBuilder
 from backend.chat.application.prompt_builder import PromptBuilder
 from backend.chat.application.session_manager import SessionManager
@@ -33,6 +35,7 @@ class ChatService(BaseService):
         memory_manager: MemoryManager | None = None,
         memory_extractor: LLMMemoryExtractor | None = None,
         ownership_service: OwnershipService | None = None,
+        agent_runtime: AgentRuntime | None = None,
     ) -> None:
         self.session_manager = session_manager or SessionManager()
         self.context_builder = context_builder or ContextBuilder(
@@ -44,6 +47,7 @@ class ChatService(BaseService):
         self.memory_manager = memory_manager or MemoryManager()
         self.memory_extractor = memory_extractor or LLMMemoryExtractor()
         self.ownership_service = ownership_service
+        self.agent_runtime = agent_runtime
         self.logger = LoggerFactory.get_logger("ChatService")
 
     def _resolve_default_workspace_for_user(self, user_id: str) -> str:
@@ -175,13 +179,38 @@ class ChatService(BaseService):
         )
         prompt = self.prompt_builder.build_prompt(context)
 
-        response_text = await asyncio.to_thread(
-            self.ollama_client.generate,
-            prompt=prompt,
-            model=(model.strip() if model else None),
-            system=self.prompt_builder.build_system_prompt(),
-            temperature=0.2,
-        )
+        normalized_model = model.strip() if model else None
+        system_prompt = self.prompt_builder.build_system_prompt()
+
+        if self.agent_runtime is not None:
+            execution_context = AgentExecutionContext(
+                conversation=conversation,
+                workspace_id=workspace_id,
+                project_id=project_id,
+                knowledge_object_ids=list(conversation.knowledge_object_ids),
+                knowledge_context=getattr(context, "knowledge_context", ""),
+                memory_context=list(context.memories),
+                rag_context=list(context.documents),
+                vision_context=getattr(context, "multimodal_context", ""),
+                user_prompt=message,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model=normalized_model,
+                metadata={"temperature": 0.2},
+            )
+            runtime_result = await asyncio.to_thread(
+                self.agent_runtime.execute,
+                execution_context,
+            )
+            response_text = runtime_result.response_text
+        else:
+            response_text = await asyncio.to_thread(
+                self.ollama_client.generate,
+                prompt=prompt,
+                model=normalized_model,
+                system=system_prompt,
+                temperature=0.2,
+            )
 
         assistant_message = conversation.add_message("assistant", response_text)
         self.session_manager.conversation_store.save_conversation(conversation)

@@ -19,6 +19,10 @@ class Conversation:
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
     messages: list[ChatMessage] = field(default_factory=list)
+    knowledge_object_ids: list[str] = field(default_factory=list)
+    attachments: list[dict[str, Any]] = field(default_factory=list)
+    analysis_cache: dict[str, dict[str, Any]] = field(default_factory=dict)
+    processing_state: dict[str, Any] = field(default_factory=dict)
 
     def add_message(self, role: str, content: str) -> ChatMessage:
         """Append a new message and update timestamps."""
@@ -42,6 +46,10 @@ class Conversation:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "messages": [message.to_dict() for message in self.messages],
+            "knowledge_object_ids": self.knowledge_object_ids,
+            "attachments": self.attachments,
+            "analysis_cache": self.analysis_cache,
+            "processing_state": self.processing_state,
         }
 
     @classmethod
@@ -74,4 +82,24 @@ class Conversation:
                 else datetime.utcnow()
             ),
             messages=messages,
+            knowledge_object_ids=[
+                str(item)
+                for item in payload.get("knowledge_object_ids", [])
+                if isinstance(item, str)
+            ],
+            attachments=[
+                item
+                for item in payload.get("attachments", [])
+                if isinstance(item, dict)
+            ],
+            analysis_cache={
+                str(key): value
+                for key, value in payload.get("analysis_cache", {}).items()
+                if isinstance(value, dict)
+            },
+            processing_state=(
+                payload.get("processing_state", {})
+                if isinstance(payload.get("processing_state", {}), dict)
+                else {}
+            ),
         )

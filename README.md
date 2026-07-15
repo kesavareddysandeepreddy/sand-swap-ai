@@ -70,6 +70,26 @@ npm run lint
 npm run build
 ```
 
+## Google OAuth Configuration
+
+Set these environment variables to control OAuth callback and post-login redirect URLs.
+
+Development:
+
+```bash
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8007/auth/oauth/google/callback
+FRONTEND_POST_LOGIN_URL=http://127.0.0.1:5173/chat
+```
+
+Production:
+
+```bash
+GOOGLE_OAUTH_REDIRECT_URI=https://ai.testlabs.co.in/auth/oauth/google/callback
+FRONTEND_POST_LOGIN_URL=https://ai.testlabs.co.in/chat
+```
+
+If these variables are not set, SandSwap AI preserves localhost fallback behavior.
+
 ## Memory API
 
 Memory management endpoints are available under `/memory`:

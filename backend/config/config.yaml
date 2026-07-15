@@ -17,5 +17,19 @@ rag:
   chunk_size: 18
   chunk_overlap: 4
 
+multimodal:
+  vision_provider: "none"
+  ocr_provider: "none"
+  cache_enabled: true
+  max_image_size: 10485760
+  supported_types:
+    - "image"
+    - "pdf"
+    - "word"
+    - "excel"
+    - "powerpoint"
+    - "text"
+    - "csv"
+
 logging:
   level: "INFO"

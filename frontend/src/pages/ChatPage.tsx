@@ -160,176 +160,179 @@ export const ChatPage = ({
 
             <section className="chat-controls" aria-label="Chat controls">
                 <div className="chat-controls-row">
-                    {auth.isAuthenticated ? (
-                        <>
-                            <label className="chat-control">
-                                <span>Workspace</span>
-                                <select
-                                    className="workspace-select"
-                                    value={auth.activeWorkspaceId ?? ""}
-                                    disabled={auth.isWorkspaceLoading || auth.workspaces.length === 0}
-                                    onChange={(event) => {
-                                        void auth.switchWorkspace(event.target.value);
-                                    }}
-                                >
-                                    {auth.workspaces.map((workspace) => (
-                                        <option key={workspace.id} value={workspace.id}>
-                                            {workspace.name}
-                                        </option>
-                                    ))}
-                                </select>
-                                <div className="chat-entity-actions">
-                                    <button
-                                        type="button"
-                                        className="memory-button"
-                                        onClick={() => {
-                                            const name = window.prompt("New workspace name");
-                                            if (!name || !name.trim()) {
-                                                return;
-                                            }
-                                            void auth.createWorkspace(name.trim());
+                    <div className="chat-controls-left">
+                        {auth.isAuthenticated ? (
+                            <>
+                                <label className="chat-control">
+                                    <span>Workspace</span>
+                                    <select
+                                        className="workspace-select"
+                                        value={auth.activeWorkspaceId ?? ""}
+                                        disabled={auth.isWorkspaceLoading || auth.workspaces.length === 0}
+                                        onChange={(event) => {
+                                            void auth.switchWorkspace(event.target.value);
                                         }}
                                     >
-                                        New
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="memory-button"
-                                        disabled={!auth.activeWorkspaceId}
-                                        onClick={() => {
-                                            if (!auth.activeWorkspaceId) {
-                                                return;
-                                            }
-                                            const name = window.prompt("Rename workspace", activeWorkspaceName);
-                                            if (!name || !name.trim()) {
-                                                return;
-                                            }
-                                            void auth.renameWorkspace(auth.activeWorkspaceId, name.trim());
+                                        {auth.workspaces.map((workspace) => (
+                                            <option key={workspace.id} value={workspace.id}>
+                                                {workspace.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <div className="chat-entity-actions">
+                                        <button
+                                            type="button"
+                                            className="memory-button"
+                                            onClick={() => {
+                                                const name = window.prompt("New workspace name");
+                                                if (!name || !name.trim()) {
+                                                    return;
+                                                }
+                                                void auth.createWorkspace(name.trim());
+                                            }}
+                                        >
+                                            New
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="memory-button"
+                                            disabled={!auth.activeWorkspaceId}
+                                            onClick={() => {
+                                                if (!auth.activeWorkspaceId) {
+                                                    return;
+                                                }
+                                                const name = window.prompt("Rename workspace", activeWorkspaceName);
+                                                if (!name || !name.trim()) {
+                                                    return;
+                                                }
+                                                void auth.renameWorkspace(auth.activeWorkspaceId, name.trim());
+                                            }}
+                                        >
+                                            Rename
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="memory-button memory-button--danger"
+                                            disabled={!auth.activeWorkspaceId || auth.workspaces.length <= 1}
+                                            onClick={() => {
+                                                if (!auth.activeWorkspaceId) {
+                                                    return;
+                                                }
+                                                const confirmed = window.confirm(
+                                                    `Delete workspace "${activeWorkspaceName}"?`
+                                                );
+                                                if (!confirmed) {
+                                                    return;
+                                                }
+                                                void auth.deleteWorkspace(auth.activeWorkspaceId);
+                                            }}
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
+                                </label>
+                                <label className="chat-control">
+                                    <span>Project</span>
+                                    <select
+                                        className="workspace-select"
+                                        value={auth.activeProjectId ?? ""}
+                                        disabled={auth.isProjectLoading || auth.projects.length === 0}
+                                        onChange={(event) => {
+                                            void auth.switchProject(event.target.value);
                                         }}
                                     >
-                                        Rename
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="memory-button memory-button--danger"
-                                        disabled={!auth.activeWorkspaceId || auth.workspaces.length <= 1}
-                                        onClick={() => {
-                                            if (!auth.activeWorkspaceId) {
-                                                return;
-                                            }
-                                            const confirmed = window.confirm(
-                                                `Delete workspace "${activeWorkspaceName}"?`
-                                            );
-                                            if (!confirmed) {
-                                                return;
-                                            }
-                                            void auth.deleteWorkspace(auth.activeWorkspaceId);
-                                        }}
-                                    >
-                                        Delete
-                                    </button>
-                                </div>
-                            </label>
-                            <label className="chat-control">
-                                <span>Project</span>
-                                <select
-                                    className="workspace-select"
-                                    value={auth.activeProjectId ?? ""}
-                                    disabled={auth.isProjectLoading || auth.projects.length === 0}
-                                    onChange={(event) => {
-                                        void auth.switchProject(event.target.value);
-                                    }}
-                                >
-                                    {auth.projects.map((project) => (
-                                        <option key={project.id} value={project.id}>
-                                            {project.name}
-                                        </option>
-                                    ))}
-                                </select>
-                                <div className="chat-entity-actions">
-                                    <button
-                                        type="button"
-                                        className="memory-button"
-                                        onClick={() => {
-                                            const name = window.prompt("New project name");
-                                            if (!name || !name.trim()) {
-                                                return;
-                                            }
-                                            void auth.createProject(name.trim());
-                                        }}
-                                    >
-                                        New
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="memory-button"
-                                        disabled={!auth.activeProjectId}
-                                        onClick={() => {
-                                            if (!auth.activeProjectId) {
-                                                return;
-                                            }
-                                            const name = window.prompt("Rename project", activeProjectName);
-                                            if (!name || !name.trim()) {
-                                                return;
-                                            }
-                                            void auth.renameProject(auth.activeProjectId, name.trim());
-                                        }}
-                                    >
-                                        Rename
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="memory-button memory-button--danger"
-                                        disabled={!auth.activeProjectId || auth.projects.length <= 1}
-                                        onClick={() => {
-                                            if (!auth.activeProjectId) {
-                                                return;
-                                            }
-                                            const confirmed = window.confirm(
-                                                `Delete project "${activeProjectName}"?`
-                                            );
-                                            if (!confirmed) {
-                                                return;
-                                            }
-                                            void auth.deleteProject(auth.activeProjectId);
-                                        }}
-                                    >
-                                        Delete
-                                    </button>
-                                </div>
-                            </label>
-                        </>
-                    ) : null}
-                    <label className="chat-control">
-                        <span>Model</span>
-                        <select
-                            className="workspace-select"
-                            value={selectedModel ?? ""}
-                            disabled={availableModels.length === 0}
-                            onChange={(event) => {
-                                onSelectModel(event.target.value || null);
-                            }}
-                        >
-                            {availableModels.map((model) => (
-                                <option key={model} value={model}>
-                                    {model}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
+                                        {auth.projects.map((project) => (
+                                            <option key={project.id} value={project.id}>
+                                                {project.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <div className="chat-entity-actions">
+                                        <button
+                                            type="button"
+                                            className="memory-button"
+                                            onClick={() => {
+                                                const name = window.prompt("New project name");
+                                                if (!name || !name.trim()) {
+                                                    return;
+                                                }
+                                                void auth.createProject(name.trim());
+                                            }}
+                                        >
+                                            New
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="memory-button"
+                                            disabled={!auth.activeProjectId}
+                                            onClick={() => {
+                                                if (!auth.activeProjectId) {
+                                                    return;
+                                                }
+                                                const name = window.prompt("Rename project", activeProjectName);
+                                                if (!name || !name.trim()) {
+                                                    return;
+                                                }
+                                                void auth.renameProject(auth.activeProjectId, name.trim());
+                                            }}
+                                        >
+                                            Rename
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="memory-button memory-button--danger"
+                                            disabled={!auth.activeProjectId || auth.projects.length <= 1}
+                                            onClick={() => {
+                                                if (!auth.activeProjectId) {
+                                                    return;
+                                                }
+                                                const confirmed = window.confirm(
+                                                    `Delete project "${activeProjectName}"?`
+                                                );
+                                                if (!confirmed) {
+                                                    return;
+                                                }
+                                                void auth.deleteProject(auth.activeProjectId);
+                                            }}
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
+                                </label>
+                            </>
+                        ) : null}
+                    </div>
+                    <div className="chat-controls-right">
+                        <label className="chat-control chat-control-model">
+                            <span>Model</span>
+                            <select
+                                className="workspace-select"
+                                value={selectedModel ?? ""}
+                                disabled={availableModels.length === 0}
+                                onChange={(event) => {
+                                    onSelectModel(event.target.value || null);
+                                }}
+                            >
+                                {availableModels.map((model) => (
+                                    <option key={model} value={model}>
+                                        {model}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    </div>
                 </div>
                 <div className="chat-controls-row chat-controls-row--meta">
                     {auth.isAuthenticated ? (
-                        <>
-                            <span className="workspace-active-chip" title={workspaceScopeId}>
-                                {activeWorkspaceName} / {activeProjectName}
-                            </span>
-                            <button type="button" className="memory-button" onClick={() => void auth.logout()}>
-                                Sign out
-                            </button>
-                        </>
+                        <span className="workspace-active-chip" title={workspaceScopeId}>
+                            {activeWorkspaceName} / {activeProjectName}
+                        </span>
                     ) : (
-                        <button type="button" className="google-signin-button" onClick={() => void auth.signInWithGooglePopup()}>
+                        <button
+                            type="button"
+                            className="google-signin-button"
+                            onClick={() => void auth.signInWithGooglePopup()}
+                        >
                             Sign in with Google
                         </button>
                     )}

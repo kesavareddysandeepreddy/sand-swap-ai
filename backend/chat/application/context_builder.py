@@ -9,7 +9,14 @@ from backend.chat.domain.chat_message import ChatMessage
 from backend.chat.infrastructure.conversation_store import ConversationStore
 from backend.core.logging.logger import LoggerFactory
 from backend.memory.core.memory_manager import MemoryManager
-from backend.rag.application.document_service import DocumentRetrievalService
+from backend.multimodal.pipeline.processor import (
+    MultimodalPipeline,
+    MultimodalPipelineContext,
+)
+from backend.rag.application.document_service import (
+    DocumentIngestionService,
+    DocumentRetrievalService,
+)
 from backend.rag.domain.models import RetrievedChunk
 
 
@@ -21,6 +28,8 @@ class PromptContext:
     memories: list[Any] = field(default_factory=list)
     documents: list[RetrievedChunk] = field(default_factory=list)
     document_citations: list[str] = field(default_factory=list)
+    knowledge_context: str = ""
+    multimodal_context: str = ""
     current_message: str = ""
     token_budget: int = 2048
     summarization_enabled: bool = False
@@ -34,10 +43,14 @@ class ContextBuilder:
         conversation_store: ConversationStore | None = None,
         memory_manager: MemoryManager | None = None,
         document_retrieval_service: DocumentRetrievalService | None = None,
+        document_ingestion_service: DocumentIngestionService | None = None,
+        multimodal_pipeline: MultimodalPipeline | None = None,
     ) -> None:
         self.conversation_store = conversation_store or ConversationStore()
         self.memory_manager = memory_manager
         self.document_retrieval_service = document_retrieval_service
+        self.document_ingestion_service = document_ingestion_service
+        self.multimodal_pipeline = multimodal_pipeline
         self.logger = LoggerFactory.get_logger("ContextBuilder")
 
     def build_context(
@@ -63,6 +76,8 @@ class ContextBuilder:
         memories: list[Any] = []
         documents: list[RetrievedChunk] = []
         citations: list[str] = []
+        multimodal_context = ""
+        knowledge_context = ""
         if self.memory_manager is not None:
             history_snippet = " ".join(message.content for message in history[-3:])
             relevance_query = f"{current_message} {history_snippet}".strip()
@@ -101,11 +116,40 @@ class ContextBuilder:
                 conversation_id,
             )
 
+        if (
+            self.multimodal_pipeline is not None
+            and self.document_ingestion_service is not None
+        ):
+            try:
+                uploaded_documents = self.document_ingestion_service.list_documents(
+                    owner_id=user_id,
+                    workspace_id=workspace_id,
+                    project_id=project_id,
+                )
+                pipeline_result = self.multimodal_pipeline.run(
+                    MultimodalPipelineContext(
+                        conversation=conversation,
+                        documents=uploaded_documents,
+                    )
+                )
+                knowledge_context = pipeline_result.knowledge_context
+                multimodal_context = pipeline_result.generated_context
+                conversation.processing_state["multimodal"] = dict(
+                    pipeline_result.metadata
+                )
+                self.conversation_store.save_conversation(conversation)
+            except Exception as exc:  # noqa: BLE001
+                self.logger.debug(
+                    "build_context() multimodal pipeline skipped: %s", exc
+                )
+
         return PromptContext(
             history=history,
             memories=memories,
             documents=documents,
             document_citations=citations,
+            knowledge_context=knowledge_context,
+            multimodal_context=multimodal_context,
             current_message=current_message,
             token_budget=2048,
             summarization_enabled=False,

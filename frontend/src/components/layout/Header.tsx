@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+
 import type { HealthResponse } from "../../types/api";
 import { HealthIndicator } from "../status/HealthIndicator";
 
@@ -24,6 +26,37 @@ export const Header = ({
     onGoogleSignIn,
     onLogout,
 }: HeaderProps) => {
+    const [isProfileOpen, setIsProfileOpen] = useState(false);
+    const profileDropdownRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        const onDocumentPointerDown = (event: MouseEvent) => {
+            if (!isProfileOpen) {
+                return;
+            }
+            const target = event.target;
+            if (!(target instanceof Node)) {
+                return;
+            }
+            if (!profileDropdownRef.current?.contains(target)) {
+                setIsProfileOpen(false);
+            }
+        };
+
+        const onDocumentKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                setIsProfileOpen(false);
+            }
+        };
+
+        document.addEventListener("mousedown", onDocumentPointerDown);
+        document.addEventListener("keydown", onDocumentKeyDown);
+        return () => {
+            document.removeEventListener("mousedown", onDocumentPointerDown);
+            document.removeEventListener("keydown", onDocumentKeyDown);
+        };
+    }, [isProfileOpen]);
+
     return (
         <header className="app-header">
             <div>
@@ -33,8 +66,16 @@ export const Header = ({
             <div className="header-meta">
                 <HealthIndicator health={health} isLoading={healthLoading} error={healthError} />
                 {isAuthenticated ? (
-                    <details className="profile-dropdown">
-                        <summary className="profile-trigger">
+                    <div className="profile-dropdown" ref={profileDropdownRef}>
+                        <button
+                            type="button"
+                            className="profile-trigger"
+                            aria-expanded={isProfileOpen}
+                            aria-haspopup="menu"
+                            onClick={() => {
+                                setIsProfileOpen((previous) => !previous);
+                            }}
+                        >
                             {avatarUrl ? (
                                 <img className="profile-avatar" src={avatarUrl} alt="User avatar" />
                             ) : (
@@ -43,15 +84,24 @@ export const Header = ({
                                 </span>
                             )}
                             <span>{displayName ?? "Authenticated User"}</span>
-                        </summary>
-                        <div className="profile-menu">
-                            <p className="profile-name">{displayName ?? "Authenticated User"}</p>
-                            <p className="profile-email">{email ?? ""}</p>
-                            <button type="button" className="memory-button" onClick={onLogout}>
-                                Sign out
-                            </button>
-                        </div>
-                    </details>
+                        </button>
+                        {isProfileOpen ? (
+                            <div className="profile-menu" role="menu">
+                                <p className="profile-name">{displayName ?? "Authenticated User"}</p>
+                                <p className="profile-email">{email ?? ""}</p>
+                                <button
+                                    type="button"
+                                    className="memory-button"
+                                    onClick={() => {
+                                        setIsProfileOpen(false);
+                                        onLogout();
+                                    }}
+                                >
+                                    Sign out
+                                </button>
+                            </div>
+                        ) : null}
+                    </div>
                 ) : (
                     <button
                         type="button"

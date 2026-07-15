@@ -30,6 +30,7 @@ class OllamaClient:
         temperature: float = 0.2,
         stream: bool = False,
         format_json: bool = False,
+        images: list[str] | None = None,
     ) -> Any:
         requested_model = (model or "").strip() or self.model
         payload = {
@@ -42,6 +43,9 @@ class OllamaClient:
 
         if format_json:
             payload["format"] = "json"
+
+        if images:
+            payload["images"] = images
 
         response = requests.post(
             f"{self.base_url}/api/generate",
