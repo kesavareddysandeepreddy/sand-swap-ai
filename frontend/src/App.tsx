@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppLayout } from "./components/layout/AppLayout";
+import { AgentStudioPage } from "./pages/AgentStudioPage";
 import { ChatPage } from "./pages/ChatPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { KnowledgeSourcesPage } from "./pages/KnowledgeSourcesPage";
@@ -68,6 +69,10 @@ const App = () => {
                         />
                     }
                 />
+                <Route path="agent-studio">
+                    <Route index element={<AgentStudioPage auth={auth} />} />
+                    <Route path=":agentId" element={<AgentStudioPage auth={auth} />} />
+                </Route>
                 <Route path="memory" element={<MemoryPage ownerId={workspaceScopeId} />} />
                 <Route path="documents" element={<DocumentsPage ownerId={workspaceScopeId} />} />
                 <Route path="uploads" element={<UploadsPage projectId={auth.activeProjectId ?? "default"} />} />

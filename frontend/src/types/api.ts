@@ -221,6 +221,69 @@ export interface KnowledgeSourceRecord {
     metadata: Record<string, unknown>;
 }
 
+export interface AgentRecord {
+    id: string;
+    name: string;
+    description: string;
+    role: string;
+    objective: string;
+    system_prompt: string;
+    enabled: boolean;
+    short_term_enabled: boolean;
+    long_term_enabled: boolean;
+    project_memory_enabled: boolean;
+    tools_allowed: string[];
+    connectors_allowed: string[];
+    approval_required: boolean;
+    max_iterations: number;
+    timeout: number;
+    retry_policy: Record<string, unknown>;
+    tags: string[];
+    owner_id: string;
+    workspace_id: string;
+    project_id: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface AgentCreateRequest {
+    name: string;
+    description?: string;
+    role: string;
+    objective: string;
+    system_prompt: string;
+    enabled?: boolean;
+    short_term_enabled?: boolean;
+    long_term_enabled?: boolean;
+    project_memory_enabled?: boolean;
+    tools_allowed?: string[];
+    connectors_allowed?: string[];
+    approval_required?: boolean;
+    max_iterations?: number;
+    timeout?: number;
+    retry_policy?: Record<string, unknown>;
+    tags?: string[];
+}
+
+export interface AgentUpdateRequest {
+    name?: string;
+    description?: string | null;
+    role?: string;
+    objective?: string;
+    system_prompt?: string;
+    enabled?: boolean;
+    short_term_enabled?: boolean;
+    long_term_enabled?: boolean;
+    project_memory_enabled?: boolean;
+    tools_allowed?: string[];
+    connectors_allowed?: string[];
+    approval_required?: boolean;
+    max_iterations?: number;
+    timeout?: number;
+    retry_policy?: Record<string, unknown>;
+    tags?: string[];
+}
+
 export interface CreateKnowledgeSourceRequest {
     project_id: string;
     name: string;
