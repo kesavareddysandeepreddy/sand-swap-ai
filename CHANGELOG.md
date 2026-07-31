@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Hardened JWT token secret handling in `TokenService` by normalizing short secrets to a deterministic strong signing key, preserving verification compatibility for previously issued short-secret tokens, and adding regression tests in `backend/tests/test_token_service.py`.
 - Refactored chat memory architecture so persistent user memories are part of the in-request pipeline: context retrieval now combines high-priority long-term facts with semantically relevant user memories across conversations, prompt sections now inject known user facts before conversation history and knowledge context, and memory extraction/persistence runs synchronously after each response to prevent cross-conversation race conditions.
 - Added persistent-memory regression coverage for cross-conversation recall (name, occupation, language preference), restart durability, and memory independence from conversation deletion in `backend/tests/test_chat_persistent_memory.py`.
 - Added Version 1.2 Step 2 production FilesystemTool under `backend/tools/filesystem_tool.py` with workspace-root-constrained file operations (read/write/list/search/create/delete/rename/move/copy/info), path traversal and out-of-root protections, structured success/error execution envelopes, tool health/validation behavior, and dedicated regression tests.

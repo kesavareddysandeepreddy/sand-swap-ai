@@ -10,6 +10,12 @@ from uuid import uuid4
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from backend.agent_studio.application.agent_service import (
+    AgentService as AgentStudioService,
+)
+from backend.agent_studio.infrastructure.sqlite_agent_repository import (
+    SQLiteAgentRepository,
+)
 from backend.agents.base import GeneralChatAgent
 from backend.agents.execution import AgentExecutor
 from backend.agents.planner import PlannerAgent
@@ -163,6 +169,12 @@ def get_token_service() -> TokenService:
 def _get_enterprise_db_path() -> str:
     """Return the configured SQLite path for enterprise auth data."""
     raw_path = os.getenv("ENTERPRISE_DB_PATH", "data/enterprise/enterprise.db")
+    return str(Path(raw_path).resolve())
+
+
+def _get_agent_studio_db_path() -> str:
+    """Return the configured SQLite path for Agent Studio data."""
+    raw_path = os.getenv("AGENT_STUDIO_DB_PATH", "data/agent_studio/agent_studio.db")
     return str(Path(raw_path).resolve())
 
 
@@ -502,6 +514,8 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         repository=knowledge_source_repository,
         connector_registry=connector_registry,
     )
+    agent_studio_repository = SQLiteAgentRepository(db_path=_get_agent_studio_db_path())
+    agent_studio_service = AgentStudioService(repository=agent_studio_repository)
     ollama_client = OllamaClient(model=default_model)
     multimodal_supported_types = config_manager.get("multimodal.supported_types", [])
     if not isinstance(multimodal_supported_types, list):
@@ -724,6 +738,8 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     shared_container.register("connector_store_repository", connector_store_repository)
     shared_container.register("connector_store_service", connector_store_service)
     shared_container.register("knowledge_source_service", knowledge_source_service)
+    shared_container.register("agent_studio_repository", agent_studio_repository)
+    shared_container.register("agent_studio_service", agent_studio_service)
     shared_container.register("upload_repository", upload_repository)
     shared_container.register("upload_queue", upload_queue)
     shared_container.register("upload_pipeline", upload_pipeline)
@@ -852,6 +868,15 @@ def get_knowledge_source_service() -> KnowledgeSourceService:
     return container.resolve("knowledge_source_service")
 
 
+def get_agent_studio_service() -> AgentStudioService:
+    """Resolve the shared Agent Studio service."""
+    container = get_container()
+    if container.exists("agent_studio_service"):
+        return container.resolve("agent_studio_service")
+    register_runtime_dependencies(container)
+    return container.resolve("agent_studio_service")
+
+
 def get_upload_manager_service() -> UploadManagerService:
     """Resolve the shared upload manager service."""
     container = get_container()
@@ -873,6 +898,11 @@ def get_connector_manager() -> ConnectorManager:
 KnowledgeSourceServiceDependency = Annotated[
     KnowledgeSourceService,
     Depends(get_knowledge_source_service),
+]
+
+AgentStudioServiceDependency = Annotated[
+    AgentStudioService,
+    Depends(get_agent_studio_service),
 ]
 
 UploadManagerServiceDependency = Annotated[

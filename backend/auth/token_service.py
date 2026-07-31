@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
+import logging
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 from backend.config.config_manager import ConfigManager
+
+logger = logging.getLogger("TokenService")
+
+_MIN_HS256_KEY_BYTES = 32
+_DEFAULT_DEVELOPMENT_SECRET = "development-secret-key-change-me-at-least-32-bytes"
 
 
 class TokenError(ValueError):
@@ -38,11 +46,65 @@ class TokenService:
     ) -> None:
         config = ConfigManager()
         configured_secret = str(config.get("auth.jwt_secret", "")).strip()
-        self.secret = secret or configured_secret or "development-secret"
+        env_secret = os.getenv("JWT_SECRET", "").strip()
+        raw_secret = (
+            secret or env_secret or configured_secret or _DEFAULT_DEVELOPMENT_SECRET
+        ).strip()
+        normalized_secret = self._normalize_secret(raw_secret)
+        self.secret = normalized_secret
+        self._verification_secrets: tuple[str, ...] = (
+            (normalized_secret, raw_secret)
+            if raw_secret and raw_secret != normalized_secret
+            else (normalized_secret,)
+        )
         self.algorithm = algorithm
         self.default_expires_minutes = default_expires_minutes
         self.default_refresh_expires_days = default_refresh_expires_days
         self._revoked_refresh_tokens: set[str] = set()
+
+    @staticmethod
+    def _normalize_secret(secret: str) -> str:
+        """Normalize secret material to avoid weak HMAC key length usage."""
+        secret_bytes = secret.encode("utf-8")
+        if len(secret_bytes) >= _MIN_HS256_KEY_BYTES:
+            return secret
+
+        # Keep compatibility by deriving a deterministic stronger key for signing.
+        derived = hashlib.sha256(secret_bytes).hexdigest()
+        logger.warning(
+            "JWT secret is %d bytes; deriving a stronger key for signing. "
+            "Configure JWT_SECRET or auth.jwt_secret to a value with at least %d bytes.",
+            len(secret_bytes),
+            _MIN_HS256_KEY_BYTES,
+        )
+        return derived
+
+    def _decode_with_supported_secrets(self, token: str) -> dict[str, Any]:
+        """Decode JWT using current signing secret and optional legacy fallback secret."""
+        jwt = self._jwt_module()
+        signature_error: Exception | None = None
+
+        for candidate_secret in self._verification_secrets:
+            try:
+                payload = jwt.decode(
+                    token, candidate_secret, algorithms=[self.algorithm]
+                )
+                return dict(payload)
+            except jwt.ExpiredSignatureError as exc:  # type: ignore[attr-defined]
+                raise TokenExpiredError("Token has expired") from exc
+            except jwt.InvalidSignatureError as exc:  # type: ignore[attr-defined]
+                signature_error = exc
+                continue
+            except jwt.DecodeError as exc:  # type: ignore[attr-defined]
+                raise TokenMalformedError("Malformed token") from exc
+            except jwt.InvalidTokenError as exc:  # type: ignore[attr-defined]
+                raise TokenMalformedError("Invalid token") from exc
+
+        if signature_error is not None:
+            raise TokenInvalidSignatureError(
+                "Invalid token signature"
+            ) from signature_error
+        raise TokenMalformedError("Invalid token")
 
     @staticmethod
     def _jwt_module():
@@ -104,18 +166,7 @@ class TokenService:
             TokenInvalidSignatureError: Signature does not match configured secret.
             TokenMalformedError: Token is malformed or otherwise invalid.
         """
-        jwt = self._jwt_module()
-
-        try:
-            payload = jwt.decode(token, self.secret, algorithms=[self.algorithm])
-        except jwt.ExpiredSignatureError as exc:  # type: ignore[attr-defined]
-            raise TokenExpiredError("Token has expired") from exc
-        except jwt.InvalidSignatureError as exc:  # type: ignore[attr-defined]
-            raise TokenInvalidSignatureError("Invalid token signature") from exc
-        except jwt.DecodeError as exc:  # type: ignore[attr-defined]
-            raise TokenMalformedError("Malformed token") from exc
-        except jwt.InvalidTokenError as exc:  # type: ignore[attr-defined]
-            raise TokenMalformedError("Invalid token") from exc
+        payload = self._decode_with_supported_secrets(token)
 
         if "sub" not in payload or "email" not in payload:
             raise TokenMalformedError("Token missing required claims")
@@ -150,17 +201,4 @@ class TokenService:
 
     def _decode_token(self, token: str) -> dict[str, Any]:
         """Decode JWT and normalize service-specific token exceptions."""
-        jwt = self._jwt_module()
-
-        try:
-            payload = jwt.decode(token, self.secret, algorithms=[self.algorithm])
-        except jwt.ExpiredSignatureError as exc:  # type: ignore[attr-defined]
-            raise TokenExpiredError("Token has expired") from exc
-        except jwt.InvalidSignatureError as exc:  # type: ignore[attr-defined]
-            raise TokenInvalidSignatureError("Invalid token signature") from exc
-        except jwt.DecodeError as exc:  # type: ignore[attr-defined]
-            raise TokenMalformedError("Malformed token") from exc
-        except jwt.InvalidTokenError as exc:  # type: ignore[attr-defined]
-            raise TokenMalformedError("Invalid token") from exc
-
-        return dict(payload)
+        return self._decode_with_supported_secrets(token)

@@ -80,6 +80,14 @@ export const ConversationSidebar = ({
                     Uploads
                 </NavLink>
                 <NavLink
+                    to="/agent-studio"
+                    className={({ isActive }) =>
+                        `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
+                    }
+                >
+                    Agent Studio
+                </NavLink>
+                <NavLink
                     to="/knowledge-sources"
                     className={({ isActive }) =>
                         `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
