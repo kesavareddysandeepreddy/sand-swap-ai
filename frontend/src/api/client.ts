@@ -3,12 +3,15 @@ import type {
     AuthLoginRequest,
     AuthTokenPair,
     AuthUserProfile,
+    ChatConversationDeleteResponse,
     ChatConversationListResponse,
     ChatModelsResponse,
     ChatRequest,
     ChatResponse,
     CreateProjectRequest,
     CreateWorkspaceRequest,
+    ExecutionTraceDetail,
+    ExecutionTraceSummary,
     GoogleOAuthExchangeRequest,
     GoogleOAuthStartResponse,
     HealthResponse,
@@ -77,6 +80,38 @@ export class ApiClient {
 
     async listChatConversations(): Promise<ChatConversationListResponse> {
         return this.request<ChatConversationListResponse>("/chat/conversations", {
+            method: "GET",
+        });
+    }
+
+    async deleteChatConversation(
+        conversationId: string
+    ): Promise<ChatConversationDeleteResponse> {
+        const path = `/chat/conversations/${encodeURIComponent(conversationId)}`;
+        const endpoint = this.buildEndpoint(path);
+        console.info("DELETE_TRACE_STEP1 request", {
+            conversation_id: conversationId,
+            url: endpoint,
+        });
+        return this.request<ChatConversationDeleteResponse>(
+            path,
+            {
+                method: "DELETE",
+            }
+        );
+    }
+
+    async listRecentExecutionTraces(limit = 20): Promise<ExecutionTraceSummary[]> {
+        return this.request<ExecutionTraceSummary[]>(
+            `/api/execution/recent?limit=${encodeURIComponent(String(limit))}`,
+            {
+                method: "GET",
+            }
+        );
+    }
+
+    async getExecutionTrace(traceId: string): Promise<ExecutionTraceDetail> {
+        return this.request<ExecutionTraceDetail>(`/api/execution/trace/${traceId}`, {
             method: "GET",
         });
     }
@@ -262,7 +297,21 @@ export class ApiClient {
             throw new ApiError(message, response.status);
         }
 
-        return (await response.json()) as T;
+        const payload = (await response.json()) as T;
+
+        if (
+            requestInit.method?.toUpperCase() === "DELETE"
+            && path.startsWith("/chat/conversations/")
+        ) {
+            console.info("DELETE_TRACE_STEP1 response", {
+                url: endpoint,
+                status: response.status,
+                ok: response.ok,
+                payload,
+            });
+        }
+
+        return payload;
     }
 
     private buildEndpoint(path: string): string {

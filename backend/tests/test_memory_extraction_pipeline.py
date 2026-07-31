@@ -167,11 +167,11 @@ def test_llm_memory_extractor_persists_structured_facts_and_survives_restart() -
         )
         prompt = prompt_builder.build_prompt(context)
 
-        assert "Relevant memories:" in prompt
+        assert "Known user facts:" in prompt
         assert "favorite_ide: Cursor" in prompt
         assert "favorite_language: Python" in prompt
         assert "project_name: SandSwap AI" in prompt
-        assert prompt.index("Relevant memories:") < prompt.index("Recent conversation:")
+        assert prompt.index("Known user facts:") < prompt.index("Conversation history:")
 
         reopened_store.close()
         conversation_store.close()

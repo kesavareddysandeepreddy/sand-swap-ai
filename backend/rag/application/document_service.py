@@ -222,6 +222,14 @@ class DocumentIngestionService:
             if isinstance(project, str) and project.strip()
             else "default"
         )
+        self.logger.debug(
+            "INGEST_DOCUMENT document_id=%s owner_id=%s workspace_id=%s project_id=%s name=%s",
+            document_id,
+            resolved_owner_id,
+            resolved_workspace_id,
+            resolved_project_id,
+            safe_name,
+        )
         document = DocumentRecord(
             id=document_id,
             name=safe_name,
@@ -297,6 +305,15 @@ class DocumentIngestionService:
                 chunk_size=chunk_size or self.default_chunk_size,
                 overlap=overlap or self.default_overlap,
             )
+            for chunk in chunks:
+                self.logger.debug(
+                    "CHUNK_CREATED chunk_id=%s document_id=%s owner_id=%s workspace_id=%s project_id=%s",
+                    chunk.id,
+                    chunk.document_id,
+                    chunk.metadata.get("owner_id"),
+                    chunk.metadata.get("workspace_id"),
+                    chunk.metadata.get("project"),
+                )
             vectors = self.embedding_provider.embed_batch(
                 [chunk.text for chunk in chunks]
             )
@@ -339,6 +356,186 @@ class DocumentIngestionService:
             self.logger.exception("Failed to index document %s: %s", document.id, exc)
             raise
 
+    def ingest_external_document(
+        self,
+        *,
+        name: str,
+        content: str,
+        metadata: dict[str, Any],
+        owner_id: str | None = None,
+        workspace_id: str | None = None,
+        project: str | None = None,
+        chunk_size: int | None = None,
+        overlap: int | None = None,
+    ) -> DocumentRecord:
+        """Ingest externally sourced text using the existing indexing pipeline."""
+        started_at = perf_counter()
+        payload = content.encode("utf-8", errors="ignore")
+        if not payload:
+            raise ValueError("External document content is empty")
+
+        document_id = str(uuid.uuid4())
+        safe_name = Path(name).name or f"external-{document_id}.txt"
+        spec = detect_file_spec(safe_name)
+        stored_name = f"{document_id}_{safe_name}"
+        stored_path = self.storage_dir / stored_name
+        stored_path.write_bytes(payload)
+
+        digest = hashlib.sha256(payload).hexdigest()
+        now = datetime.now(UTC)
+        resolved_owner_id = self._resolve_owner_id(owner_id)
+        resolved_workspace_id = self._resolve_project_id(
+            resolved_owner_id, workspace_id
+        )
+        resolved_project_id = (
+            project.strip()
+            if isinstance(project, str) and project.strip()
+            else "default"
+        )
+
+        base_metadata = {
+            "owner_id": resolved_owner_id,
+            "workspace_id": resolved_workspace_id,
+            "project": resolved_project_id,
+            "tags": [],
+            "language": metadata.get("language"),
+            "author": metadata.get("author"),
+            "created": now.isoformat(),
+            "modified": now.isoformat(),
+            "category": spec.category,
+            "parser": spec.parser,
+            "source_type": metadata.get("connector_type", spec.category),
+            "checksum_sha256": digest,
+            "file_size_bytes": len(payload),
+            "processing_status": "processing",
+        }
+        base_metadata.update(metadata)
+        # Re-assert resolved ownership values that the connector metadata must not override
+        base_metadata["owner_id"] = resolved_owner_id
+        base_metadata["workspace_id"] = resolved_workspace_id
+        base_metadata["project"] = resolved_project_id
+
+        document = DocumentRecord(
+            id=document_id,
+            name=safe_name,
+            original_filename=safe_name,
+            stored_path=str(stored_path),
+            file_type=spec.key,
+            size_bytes=len(payload),
+            sha256=digest,
+            metadata=base_metadata,
+        )
+        self.repository.save(document)
+        self.logger.debug(
+            "INGEST_DOCUMENT document_id=%s owner_id=%s workspace_id=%s project_id=%s name=%s",
+            document_id,
+            resolved_owner_id,
+            resolved_workspace_id,
+            resolved_project_id,
+            safe_name,
+        )
+        if self.knowledge_service is not None:
+            try:
+                self.knowledge_service.ensure_from_document(
+                    document=document,
+                    workspace_id=resolved_workspace_id,
+                    project_id=resolved_project_id,
+                    conversation_id=None,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.logger.debug(
+                    "Knowledge lifecycle registration skipped for external document %s: %s",
+                    document.id,
+                    exc,
+                )
+
+        try:
+            parser = self.parser_factory.resolve(safe_name)
+            parsed = parser.parse(str(stored_path))
+            if parsed.language:
+                document.metadata["language"] = parsed.language
+            document.metadata.update(parsed.metadata)
+            # Always re-assert ownership — parsed metadata must not override it
+            document.metadata["owner_id"] = resolved_owner_id
+            document.metadata["workspace_id"] = resolved_workspace_id
+            document.metadata["project"] = resolved_project_id
+            document.metadata["parser"] = parsed.parser or spec.parser
+
+            page_count = self._to_int(document.metadata.get("page_count"))
+            slide_count = self._to_int(document.metadata.get("slide_count"))
+            worksheet_count = len(document.metadata.get("worksheets", []))
+            document.metadata["pages"] = max(page_count, slide_count, worksheet_count)
+            table_count = self._to_int(document.metadata.get("table_count"))
+            if table_count == 0:
+                table_count = self._to_int(document.metadata.get("table_hints"))
+            image_count = self._to_int(document.metadata.get("image_count"))
+            if image_count == 0 and parsed.images:
+                image_count = len(parsed.images)
+            document.metadata["tables"] = table_count
+            document.metadata["images"] = image_count
+            document.metadata["section_count"] = len(parsed.sections)
+            document.metadata["paragraph_count"] = len(parsed.paragraphs)
+
+            chunker = self.chunker_factory.resolve(safe_name)
+            chunks = chunker.chunk(
+                document=document,
+                parsed=parsed,
+                chunk_size=chunk_size or self.default_chunk_size,
+                overlap=overlap or self.default_overlap,
+            )
+            for chunk in chunks:
+                self.logger.debug(
+                    "CHUNK_CREATED chunk_id=%s document_id=%s owner_id=%s workspace_id=%s project_id=%s",
+                    chunk.id,
+                    chunk.document_id,
+                    chunk.metadata.get("owner_id"),
+                    chunk.metadata.get("workspace_id"),
+                    chunk.metadata.get("project"),
+                )
+            vectors = self.embedding_provider.embed_batch(
+                [chunk.text for chunk in chunks]
+            )
+            self.vector_store.upsert_chunks(chunks, vectors)
+
+            document.chunk_count = len(chunks)
+            document.metadata["chunks"] = len(chunks)
+            document.embedding_status = "completed"
+            document.index_status = "indexed"
+            elapsed_ms = int((perf_counter() - started_at) * 1000)
+            document.metadata["processing_time_ms"] = elapsed_ms
+            document.metadata["processing_status"] = "completed"
+            document.metadata["owner_id"] = resolved_owner_id
+            document.metadata["workspace_id"] = resolved_workspace_id
+            document.metadata["project"] = resolved_project_id
+            document.updated_at = datetime.now(UTC)
+            self.repository.update(document)
+            resolved_project_id = self._ensure_document_ownership(
+                document_id=document.id,
+                owner_id=resolved_owner_id,
+                workspace_id=resolved_workspace_id,
+                project_id=resolved_project_id,
+            )
+            document.metadata["project"] = resolved_project_id
+            document.updated_at = datetime.now(UTC)
+            self.repository.update(document)
+            return document
+        except Exception as exc:  # noqa: BLE001
+            document.embedding_status = "failed"
+            document.index_status = "failed"
+            elapsed_ms = int((perf_counter() - started_at) * 1000)
+            document.metadata["processing_time_ms"] = elapsed_ms
+            document.metadata["processing_status"] = "failed"
+            document.metadata["processing_error"] = str(exc)
+            document.metadata["owner_id"] = resolved_owner_id
+            document.metadata["workspace_id"] = resolved_workspace_id
+            document.metadata["project"] = resolved_project_id
+            document.updated_at = datetime.now(UTC)
+            self.repository.update(document)
+            self.logger.exception(
+                "Failed to index external document %s: %s", document.id, exc
+            )
+            raise
+
     def list_documents(
         self,
         owner_id: str | None = None,
@@ -349,6 +546,17 @@ class DocumentIngestionService:
             self._attach_document_ownership(document)
             for document in self.repository.list_all()
         ]
+        if owner_id is not None and self.ownership_service is not None:
+            existing_document_ids = {document.id for document in documents}
+            for owner in self.ownership_service.list_document_owners(
+                self._resolve_owner_id(owner_id)
+            ):
+                if owner.document_id in existing_document_ids:
+                    continue
+                try:
+                    self.ownership_service.unassign_document_owner(owner.document_id)
+                except Exception:  # noqa: BLE001
+                    continue
         if owner_id is None and workspace_id is None and project_id is None:
             return documents
 
@@ -445,6 +653,11 @@ class DocumentIngestionService:
 
         self.vector_store.delete_document(document_id)
         deleted = self.repository.delete(document_id)
+        if deleted and self.ownership_service is not None:
+            try:
+                self.ownership_service.unassign_document_owner(document_id)
+            except Exception:  # noqa: BLE001
+                pass
 
         path = Path(document.stored_path)
         if path.exists():
@@ -476,6 +689,11 @@ class DocumentIngestionService:
         for document in documents:
             self.vector_store.delete_document(document.id)
             if self.repository.delete(document.id):
+                if self.ownership_service is not None:
+                    try:
+                        self.ownership_service.unassign_document_owner(document.id)
+                    except Exception:  # noqa: BLE001
+                        pass
                 deleted += 1
         return deleted
 
@@ -526,6 +744,11 @@ class DocumentRetrievalService:
             filters.get("conversation_id"),
             filters.get("document_id"),
         )
+        self.logger.info(
+            "RAG_RETRIEVAL_QUERY query=%r filters=%s",
+            query,
+            filters or None,
+        )
 
         chunks = self.retriever.retrieve(
             query=query,
@@ -565,6 +788,12 @@ class DocumentRetrievalService:
             filters.get("owner_id"),
             filters.get("project"),
             filters.get("conversation_id"),
+        )
+        searched_documents = sorted({chunk.document_name for chunk in chunks})
+        self.logger.info(
+            "RAG_RETRIEVAL_RESULT documents_searched=%s chunks_retrieved=%s",
+            searched_documents,
+            len(chunks),
         )
         return chunks
 

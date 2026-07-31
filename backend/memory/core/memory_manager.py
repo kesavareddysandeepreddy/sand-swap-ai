@@ -36,6 +36,8 @@ HIGH_IMPORTANCE_KEYWORDS = {
     "favorite",
 }
 
+HIGH_PRIORITY_IMPORTANCE_THRESHOLD = 0.75
+
 LOW_IMPORTANCE_KEYWORDS = {
     "hello",
     "hi",
@@ -45,6 +47,22 @@ LOW_IMPORTANCE_KEYWORDS = {
     "ack",
     "ok",
 }
+
+
+_UNINFORMATIVE_VALUES: frozenset[str] = frozenset(
+    {
+        "",
+        "unknown",
+        "null",
+        "n/a",
+        "none",
+        "nan",
+        "undefined",
+        "not available",
+        "not specified",
+        "not provided",
+    }
+)
 
 
 class MemoryManager:
@@ -144,6 +162,8 @@ class MemoryManager:
         *,
         query_tokens: set[str],
         category_hint: set[str],
+        workspace_id: str | None,
+        project_id: str | None,
     ) -> float:
         key_tokens = self._tokenize(memory.key)
         value_tokens = self._tokenize(memory.value)
@@ -153,13 +173,28 @@ class MemoryManager:
         key_overlap = len(query_tokens & key_tokens)
         category_bonus = 1.0 if memory.category in category_hint else 0.0
 
+        memory_workspace = str(memory.metadata.get("workspace_id") or "")
+        workspace_bonus = 0.0
+        if workspace_id is not None:
+            workspace_bonus = 0.75 if memory_workspace == workspace_id else 0.0
+
+        project_bonus = 0.0
+        if project_id is not None:
+            project_bonus = 0.75 if (memory.project_id == project_id) else 0.0
+
         return (
             overlap * 1.25
             + key_overlap * 1.75
             + category_bonus
+            + workspace_bonus
+            + project_bonus
             + memory.importance * 2.0
             + self._score_recency(memory)
         )
+
+    @staticmethod
+    def _score_priority(memory: MemoryRecord) -> float:
+        return memory.importance * 2.0 + MemoryManager._score_recency(memory)
 
     def remember(
         self,
@@ -203,6 +238,17 @@ class MemoryManager:
         if existing:
             if self._normalize_text(existing.value) == normalized_value:
                 self.logger.info("Decision: duplicate key=%s", key)
+                return existing
+
+            # Skip update when the new value is non-informative to protect
+            # existing useful memories from being overwritten with placeholders.
+            if normalized_value in _UNINFORMATIVE_VALUES:
+                self.logger.info(
+                    "Decision: skip-uninformative-update key=%s proposed_value=%r keeping_existing=%r",
+                    key,
+                    value,
+                    existing.value,
+                )
                 return existing
 
             self.logger.info(
@@ -271,14 +317,7 @@ class MemoryManager:
         query_tokens = self._tokenize(query)
         category_hint = {token for token in query_tokens if token in VALID_CATEGORIES}
         candidates = [
-            memory
-            for memory in self.store.get_all()
-            if memory.user_id == user_id
-            and (
-                workspace_id is None
-                or str(memory.metadata.get("workspace_id") or "default") == workspace_id
-            )
-            and (project_id is None or (memory.project_id or "default") == project_id)
+            memory for memory in self.store.get_all() if memory.user_id == user_id
         ]
 
         ranked = sorted(
@@ -287,10 +326,58 @@ class MemoryManager:
                 memory,
                 query_tokens=query_tokens,
                 category_hint=category_hint,
+                workspace_id=workspace_id,
+                project_id=project_id,
             ),
             reverse=True,
         )
         return ranked[:top_n]
+
+    def retrieve_context_memories(
+        self,
+        user_id: str,
+        query: str,
+        *,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+        top_n_relevant: int = 5,
+        top_n_priority: int = 5,
+    ) -> list[MemoryRecord]:
+        """Return ordered persistent memories for prompt context.
+
+        Order: high-priority persistent memories first, then semantically relevant
+        memories, deduplicated by memory id.
+        """
+        all_user_memories = [
+            memory for memory in self.store.get_all() if memory.user_id == user_id
+        ]
+        high_priority = sorted(
+            [
+                memory
+                for memory in all_user_memories
+                if memory.importance >= HIGH_PRIORITY_IMPORTANCE_THRESHOLD
+            ],
+            key=self._score_priority,
+            reverse=True,
+        )[:top_n_priority]
+
+        relevant = self.retrieve_relevant(
+            user_id,
+            query,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            top_n=top_n_relevant,
+        )
+
+        ordered: list[MemoryRecord] = []
+        seen_ids: set[str] = set()
+        for memory in [*high_priority, *relevant]:
+            if memory.id in seen_ids:
+                continue
+            seen_ids.add(memory.id)
+            ordered.append(memory)
+
+        return ordered
 
     def forget(self, memory_id: str) -> bool:
         return self.store.delete(memory_id)

@@ -38,6 +38,12 @@ class AgentExecutor:
             agent_context=context,
             agent=agent,
             tool_router=tool_router,
+            metadata={
+                "tool_results": context.metadata.get("tool_results", []),
+                "tool_results_by_step_id": context.metadata.get(
+                    "tool_results_by_step_id", {}
+                ),
+            },
         )
         workflow_result = self.workflow_engine.execute(plan, workflow_context)
 
@@ -66,5 +72,6 @@ class AgentExecutor:
                 "workflow_id": workflow_result.workflow_id,
                 "workflow_status": workflow_result.status,
                 "task_count": len(workflow_result.task_results),
+                "tool_results": workflow_result.metadata.get("tool_results", []),
             },
         )

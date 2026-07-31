@@ -88,6 +88,14 @@ class SQLiteVectorStore(VectorStore):
                         json.dumps(chunk.metadata, sort_keys=True),
                     ),
                 )
+                self.logger.debug(
+                    "VECTOR_STORED chunk_id=%s document_id=%s owner_id=%s workspace_id=%s project_id=%s",
+                    chunk.id,
+                    chunk.document_id,
+                    chunk.metadata.get("owner_id"),
+                    chunk.metadata.get("workspace_id"),
+                    chunk.metadata.get("project"),
+                )
             self.connection.commit()
 
     def delete_document(self, document_id: str) -> int:
@@ -144,6 +152,12 @@ class SQLiteVectorStore(VectorStore):
             cursor.execute("SELECT * FROM rag_chunks")
             rows = cursor.fetchall()
 
+        metadata_rows = [json.loads(str(row["metadata"])) for row in rows]
+        filter_trace = self._build_filter_trace(
+            metadata_rows=metadata_rows,
+            metadata_filter=metadata_filter,
+        )
+
         results: list[RetrievedChunk] = []
         filtered_counts: dict[str, int] = {}
         for row in rows:
@@ -157,19 +171,37 @@ class SQLiteVectorStore(VectorStore):
 
             vector = [float(value) for value in json.loads(str(row["vector"]))]
             score = self._cosine_similarity(query_vector, vector)
-            results.append(
-                RetrievedChunk(
-                    chunk_id=str(row["chunk_id"]),
-                    document_id=str(row["document_id"]),
-                    document_name=str(row["document_name"]),
-                    text=str(row["content"]),
-                    score=score,
-                    metadata=metadata,
-                )
+            chunk = RetrievedChunk(
+                chunk_id=str(row["chunk_id"]),
+                document_id=str(row["document_id"]),
+                document_name=str(row["document_name"]),
+                text=str(row["content"]),
+                score=score,
+                metadata=metadata,
             )
+            self.logger.debug(
+                "RETRIEVAL_MATCH chunk_id=%s owner_id=%s workspace_id=%s project_id=%s score=%.6f",
+                chunk.chunk_id,
+                metadata.get("owner_id"),
+                metadata.get("workspace_id"),
+                metadata.get("project"),
+                score,
+            )
+            results.append(chunk)
 
         results.sort(key=lambda chunk: chunk.score, reverse=True)
         selected = results[:top_k]
+        self.logger.info(
+            "retrieve() filter_trace total_chunks=%s after_owner_filter=%s after_workspace_filter=%s after_project_filter=%s zero_filter=%s owner_filter=%s workspace_filter=%s project_filter=%s",
+            filter_trace["total_chunks"],
+            filter_trace["after_owner_filter"],
+            filter_trace["after_workspace_filter"],
+            filter_trace["after_project_filter"],
+            filter_trace["zero_filter"],
+            filter_trace["owner_filter"],
+            filter_trace["workspace_filter"],
+            filter_trace["project_filter"],
+        )
         self.logger.info(
             "retrieve() input query_vector_dims=%s total_chunks=%s metadata_filter=%s filtered_counts=%s output_chunk_count=%s similarity_scores=%s owner_filter=%s project_filter=%s conversation_filter=%s",
             len(query_vector),
@@ -227,6 +259,73 @@ class SQLiteVectorStore(VectorStore):
                 return f"{key}:{metadata.get(key)}!={expected}"
 
         return None
+
+    def _build_filter_trace(
+        self,
+        *,
+        metadata_rows: list[dict[str, Any]],
+        metadata_filter: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        trace = {
+            "total_chunks": len(metadata_rows),
+            "after_owner_filter": len(metadata_rows),
+            "after_workspace_filter": len(metadata_rows),
+            "after_project_filter": len(metadata_rows),
+            "zero_filter": None,
+            "owner_filter": None,
+            "workspace_filter": None,
+            "project_filter": None,
+        }
+        if not metadata_filter:
+            return trace
+
+        remaining = list(metadata_rows)
+
+        owner_expected = metadata_filter.get("owner_id")
+        trace["owner_filter"] = owner_expected
+        if owner_expected is not None:
+            remaining = [
+                metadata
+                for metadata in remaining
+                if self._filter_mismatch_reason(metadata, {"owner_id": owner_expected})
+                is None
+            ]
+            trace["after_owner_filter"] = len(remaining)
+            if not remaining:
+                trace["zero_filter"] = "owner_id"
+                return trace
+
+        workspace_expected = metadata_filter.get("workspace_id")
+        trace["workspace_filter"] = workspace_expected
+        if workspace_expected is not None:
+            remaining = [
+                metadata
+                for metadata in remaining
+                if self._filter_mismatch_reason(
+                    metadata,
+                    {"workspace_id": workspace_expected},
+                )
+                is None
+            ]
+            trace["after_workspace_filter"] = len(remaining)
+            if not remaining:
+                trace["zero_filter"] = "workspace_id"
+                return trace
+
+        project_expected = metadata_filter.get("project")
+        trace["project_filter"] = project_expected
+        if project_expected is not None:
+            remaining = [
+                metadata
+                for metadata in remaining
+                if self._filter_mismatch_reason(metadata, {"project": project_expected})
+                is None
+            ]
+            trace["after_project_filter"] = len(remaining)
+            if not remaining:
+                trace["zero_filter"] = "project"
+
+        return trace
 
     def _cosine_similarity(self, lhs: list[float], rhs: list[float]) -> float:
         if not lhs or not rhs or len(lhs) != len(rhs):

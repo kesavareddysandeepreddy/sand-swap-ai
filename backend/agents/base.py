@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 
 from backend.agents.context import AgentExecutionContext
 from backend.agents.models import AgentExecutionPlan
+from backend.core.logging.logger import LoggerFactory
 from backend.llm.client import OllamaClient
 
 
@@ -68,6 +69,7 @@ class GeneralChatAgent(BaseAgent):
 
     def __init__(self, ollama_client: OllamaClient) -> None:
         self.ollama_client = ollama_client
+        self.logger = LoggerFactory.get_logger("GeneralChatAgent")
 
     def name(self) -> str:
         return "general_chat_agent"
@@ -88,6 +90,15 @@ class GeneralChatAgent(BaseAgent):
         )
 
     def execute(self, context: AgentExecutionContext) -> str:
+        self.logger.info(
+            "LLM_REQUEST query=%r owner_id=%s workspace_id=%s project_id=%s chunks_retrieved=%s chunks_in_prompt=%s",
+            context.user_prompt,
+            context.metadata.get("owner_id"),
+            context.workspace_id,
+            context.project_id,
+            len(context.rag_context),
+            len(context.rag_context),
+        )
         return str(
             self.ollama_client.generate(
                 prompt=context.prompt,

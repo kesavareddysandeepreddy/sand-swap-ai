@@ -33,11 +33,18 @@ from backend.config.settings import Settings
 from backend.core.container.container import Container
 from backend.core.logging.logger import LoggerFactory
 from backend.core.registry import registry
+from backend.execution.recorder import ExecutionRecorder
 from backend.knowledge.knowledge_context import KnowledgeContextBuilder
 from backend.knowledge.knowledge_index import KnowledgeIndex
 from backend.knowledge.knowledge_registry import KnowledgeRegistry
 from backend.knowledge.knowledge_repository import InMemoryKnowledgeRepository
 from backend.knowledge.knowledge_service import KnowledgeService
+from backend.knowledge_connector_store.repository import ConnectorStoreRepository
+from backend.knowledge_connector_store.service import ConnectorStoreService
+from backend.knowledge_connectors.manager import ConnectorManager
+from backend.knowledge_sources.registry import ConnectorRegistry
+from backend.knowledge_sources.repository import KnowledgeSourceRepository
+from backend.knowledge_sources.service import KnowledgeSourceService
 from backend.llm.client import OllamaClient
 from backend.mcp.capabilities import CapabilityDiscovery
 from backend.mcp.client import MCPClient
@@ -65,6 +72,10 @@ from backend.persistence.sqlite_enterprise_repositories import (
     SQLiteUserRepository,
     SQLiteWorkspaceProjectRepository,
 )
+from backend.project_memory.archive_manager import ArchiveManager
+from backend.project_memory.checkpoint import ConversationCheckpointEngine
+from backend.project_memory.repository import ConversationArchiveRepository
+from backend.project_memory.summarizer import ConversationSummarizer
 from backend.rag.application.document_service import (
     DocumentIngestionService,
     DocumentRetrievalService,
@@ -79,6 +90,19 @@ from backend.rag.retrievers.semantic_retriever import SemanticRetriever
 from backend.rag.vectorstores.sqlite_vector_store import SQLiteVectorStore
 from backend.services.ownership_service import OwnershipService
 from backend.services.user_service import UserService
+from backend.tool_sdk.registry import ToolRegistry, default_tool_registry
+from backend.tools import filesystem_tool, python_tool, rest_tool
+from backend.tools.capability_registry import (
+    CapabilityRegistry,
+    register_default_tool_metadata,
+)
+from backend.tools.python_tool import PythonTool
+from backend.upload_manager.pipeline import UploadPipeline
+from backend.upload_manager.queue import UploadQueue
+from backend.upload_manager.repository import UploadRepository
+from backend.upload_manager.service import UploadManagerService
+from backend.workers.registry import WorkerRegistry
+from backend.workers.universal_worker import UniversalWorker
 from backend.workflows.engine import WorkflowEngine
 from backend.workflows.executor import WorkflowExecutor
 from backend.workflows.queue import InMemoryWorkflowQueue
@@ -112,6 +136,12 @@ def _get_rag_vector_db_path() -> str:
 
     base_path = Path(os.getenv("RAG_DB_PATH", "data/documents/rag")).resolve()
     return str(base_path.with_name(f"{base_path.name}_vectors.db"))
+
+
+def _get_chat_conversation_db_path() -> str:
+    """Return the configured SQLite path for chat conversation persistence."""
+    raw_path = os.getenv("CHAT_CONVERSATION_DB_PATH", "data/chat/conversations.db")
+    return str(Path(raw_path).resolve())
 
 
 def get_container() -> Container:
@@ -261,10 +291,17 @@ def get_request_ownership_context(
                 "workspace_id": "default",
                 "project_id": "default",
             }
+
+    requested_workspace_id = request.headers.get("X-Workspace-Id")
+    if requested_workspace_id is not None:
+        requested_workspace_id = requested_workspace_id.strip() or None
+    requested_project_id = request.headers.get("X-Project-Id")
+    if requested_project_id is not None:
+        requested_project_id = requested_project_id.strip() or None
     return {
         "user_id": "anonymous",
-        "workspace_id": "default",
-        "project_id": "default",
+        "workspace_id": requested_workspace_id or "default",
+        "project_id": requested_project_id or "default",
     }
 
 
@@ -391,12 +428,14 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     memory_db_path = _get_memory_db_path()
     rag_document_db_path = _get_rag_document_db_path()
     rag_vector_db_path = _get_rag_vector_db_path()
+    conversation_db_path = _get_chat_conversation_db_path()
     logger.info("Runtime memory SQLite path: %s", memory_db_path)
     logger.info("Runtime RAG document SQLite path: %s", rag_document_db_path)
     logger.info("Runtime RAG vector SQLite path: %s", rag_vector_db_path)
+    logger.info("Runtime chat conversation SQLite path: %s", conversation_db_path)
     memory_store = SQLiteMemoryStore(db_path=memory_db_path)
     memory_manager = MemoryManager(store=memory_store)
-    conversation_store = ConversationStore(db_path=":memory:")
+    conversation_store = ConversationStore(db_path=conversation_db_path)
     session_manager = SessionManager(conversation_store=conversation_store)
     document_repository = SQLiteDocumentRepository(db_path=rag_document_db_path)
     vector_store = SQLiteVectorStore(db_path=rag_vector_db_path)
@@ -409,6 +448,18 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         registry=knowledge_registry,
         index=knowledge_index,
         context_builder=knowledge_context_builder,
+    )
+    upload_repository = UploadRepository()
+    upload_queue = UploadQueue()
+    upload_pipeline = UploadPipeline()
+    upload_manager_service = UploadManagerService(
+        repository=upload_repository,
+        queue=upload_queue,
+        pipeline=upload_pipeline,
+    )
+    connector_store_repository = ConnectorStoreRepository(db_path=enterprise_db_path)
+    connector_store_service = ConnectorStoreService(
+        repository=connector_store_repository
     )
     parser_factory = ParserFactory(
         ocr_provider=str(config_manager.get("rag.ocr_provider", "tesseract"))
@@ -441,6 +492,16 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         vector_store=vector_store,
     )
     document_retrieval_service = DocumentRetrievalService(retriever=semantic_retriever)
+    knowledge_source_repository = KnowledgeSourceRepository(db_path=enterprise_db_path)
+    connector_registry = ConnectorRegistry(
+        upload_manager=upload_manager_service,
+        ingestion_service=document_ingestion_service,
+        store_service=connector_store_service,
+    )
+    knowledge_source_service = KnowledgeSourceService(
+        repository=knowledge_source_repository,
+        connector_registry=connector_registry,
+    )
     ollama_client = OllamaClient(model=default_model)
     multimodal_supported_types = config_manager.get("multimodal.supported_types", [])
     if not isinstance(multimodal_supported_types, list):
@@ -531,13 +592,44 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         executor=workflow_executor,
         queue=workflow_queue,
     )
+    conversation_summarizer = ConversationSummarizer()
+    conversation_archive_repository = ConversationArchiveRepository()
+    archive_manager = ArchiveManager(
+        repository=conversation_archive_repository,
+        summarizer=conversation_summarizer,
+    )
+    checkpoint_engine = ConversationCheckpointEngine(
+        archive_manager=archive_manager,
+        checkpoint_interval=200,
+    )
     agent_executor = AgentExecutor(workflow_engine=workflow_engine)
+    capability_registry = CapabilityRegistry()
+    register_default_tool_metadata(capability_registry)
+    _ = (filesystem_tool, python_tool, rest_tool)
+    tool_sdk_registry = ToolRegistry(capability_registry=capability_registry)
+    for tool_class in default_tool_registry.list():
+        tool_sdk_registry.register(tool_class)
+    execution_recorder = ExecutionRecorder()
+    PythonTool.configure_execution_recorder(execution_recorder)
+    worker_registry = WorkerRegistry()
+    universal_worker = UniversalWorker(
+        planner=planner_agent,
+        workflow_engine=workflow_engine,
+        tool_router=tool_router,
+        agent=general_chat_agent,
+        capability_registry=capability_registry,
+        execution_recorder=execution_recorder,
+        checkpoint_engine=checkpoint_engine,
+        archive_manager=archive_manager,
+    )
     agent_runtime = AgentRuntime(
         registry=agent_registry,
         planner=planner_agent,
         tool_router=tool_router,
         executor=agent_executor,
+        worker=universal_worker,
     )
+    worker_registry.register(universal_worker)
 
     context_builder = ContextBuilder(
         conversation_store=conversation_store,
@@ -624,6 +716,18 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     shared_container.register("knowledge_index", knowledge_index)
     shared_container.register("knowledge_context_builder", knowledge_context_builder)
     shared_container.register("knowledge_service", knowledge_service)
+    shared_container.register(
+        "knowledge_source_repository", knowledge_source_repository
+    )
+    shared_container.register("connector_registry", connector_registry)
+    shared_container.register("connector_manager", connector_registry.manager)
+    shared_container.register("connector_store_repository", connector_store_repository)
+    shared_container.register("connector_store_service", connector_store_service)
+    shared_container.register("knowledge_source_service", knowledge_source_service)
+    shared_container.register("upload_repository", upload_repository)
+    shared_container.register("upload_queue", upload_queue)
+    shared_container.register("upload_pipeline", upload_pipeline)
+    shared_container.register("upload_manager_service", upload_manager_service)
     shared_container.register("tool_router", tool_router)
     shared_container.register("planner_agent", planner_agent)
     shared_container.register("agent_registry", agent_registry)
@@ -637,6 +741,18 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     shared_container.register("mcp_discovery_service", mcp_discovery_service)
     shared_container.register("mcp_session_manager", mcp_session_manager)
     shared_container.register("mcp_client", mcp_client)
+    shared_container.register("capability_registry", capability_registry)
+    shared_container.register("tool_registry", tool_sdk_registry)
+    shared_container.register("execution_recorder", execution_recorder)
+    shared_container.register("conversation_summarizer", conversation_summarizer)
+    shared_container.register(
+        "conversation_archive_repository",
+        conversation_archive_repository,
+    )
+    shared_container.register("archive_manager", archive_manager)
+    shared_container.register("checkpoint_engine", checkpoint_engine)
+    shared_container.register("worker_registry", worker_registry)
+    shared_container.register("universal_worker", universal_worker)
     shared_container.register("agent_runtime", agent_runtime)
 
     registry.register("chat_service", chat_service)
@@ -716,3 +832,55 @@ def get_document_retrieval_service() -> DocumentRetrievalService:
         return container.resolve("document_retrieval_service")
     register_runtime_dependencies(container)
     return container.resolve("document_retrieval_service")
+
+
+def get_execution_recorder() -> ExecutionRecorder:
+    """Resolve the shared execution recorder."""
+    container = get_container()
+    if container.exists("execution_recorder"):
+        return container.resolve("execution_recorder")
+    register_runtime_dependencies(container)
+    return container.resolve("execution_recorder")
+
+
+def get_knowledge_source_service() -> KnowledgeSourceService:
+    """Resolve the shared knowledge source service."""
+    container = get_container()
+    if container.exists("knowledge_source_service"):
+        return container.resolve("knowledge_source_service")
+    register_runtime_dependencies(container)
+    return container.resolve("knowledge_source_service")
+
+
+def get_upload_manager_service() -> UploadManagerService:
+    """Resolve the shared upload manager service."""
+    container = get_container()
+    if container.exists("upload_manager_service"):
+        return container.resolve("upload_manager_service")
+    register_runtime_dependencies(container)
+    return container.resolve("upload_manager_service")
+
+
+def get_connector_manager() -> ConnectorManager:
+    """Resolve the shared connector manager service."""
+    container = get_container()
+    if container.exists("connector_manager"):
+        return container.resolve("connector_manager")
+    register_runtime_dependencies(container)
+    return container.resolve("connector_manager")
+
+
+KnowledgeSourceServiceDependency = Annotated[
+    KnowledgeSourceService,
+    Depends(get_knowledge_source_service),
+]
+
+UploadManagerServiceDependency = Annotated[
+    UploadManagerService,
+    Depends(get_upload_manager_service),
+]
+
+ConnectorManagerDependency = Annotated[
+    ConnectorManager,
+    Depends(get_connector_manager),
+]

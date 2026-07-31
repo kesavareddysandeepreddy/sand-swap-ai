@@ -39,6 +39,7 @@ htmlcov/
 Thumbs.db
 
 # Data
+data/documents/*
 data/uploads/*
 !data/uploads/.gitkeep
 

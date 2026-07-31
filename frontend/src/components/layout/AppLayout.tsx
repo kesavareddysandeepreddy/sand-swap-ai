@@ -16,7 +16,7 @@ interface AppLayoutProps {
     onSelectConversation: (id: string) => void;
     onNewConversation: () => void;
     onRenameConversation: (id: string, nextTitle: string) => void;
-    onDeleteConversation: (id: string) => void;
+    onDeleteConversation: (id: string) => void | Promise<void>;
 }
 
 export const AppLayout = ({

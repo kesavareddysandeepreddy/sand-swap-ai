@@ -8,6 +8,7 @@ vi.mock("../api/client", () => ({
     apiClient: {
         listChatModels: vi.fn(async () => ({ models: ["llama3.2:3b"] })),
         listChatConversations: vi.fn(async () => ({ items: [] })),
+        deleteChatConversation: vi.fn(),
         sendChatMessage: vi.fn(),
     },
     ApiError: class ApiError extends Error {
@@ -74,5 +75,49 @@ describe("useChat conversation restoration", () => {
 
         expect(apiClient.listChatConversations).not.toHaveBeenCalled();
         expect(result.current.conversations).toEqual([]);
+    });
+
+    it("persists delete to storage before refresh", async () => {
+        const storageScopeId = "user-1:workspace-1:project-1";
+        window.localStorage.setItem(
+            `sand-swap-chat-state-v1:${storageScopeId}`,
+            JSON.stringify({
+                conversations: [
+                    {
+                        id: "user-1:conv-delete",
+                        title: "Delete me",
+                        updatedAt: "2026-01-01T00:00:00.000Z",
+                        messages: [],
+                    },
+                ],
+                activeConversationId: "user-1:conv-delete",
+            })
+        );
+        vi.mocked(apiClient.deleteChatConversation).mockResolvedValue({
+            conversation_id: "user-1:conv-delete",
+            deleted: true,
+            database_deleted: true,
+            cache_deleted: true,
+            memory_deleted: false,
+        });
+
+        const { result } = renderHook(() => useChat("user-1", storageScopeId));
+
+        await waitFor(() => {
+            expect(result.current.conversations).toHaveLength(1);
+        });
+
+        await act(async () => {
+            await result.current.deleteConversation("user-1:conv-delete");
+        });
+
+        const raw = window.localStorage.getItem(`sand-swap-chat-state-v1:${storageScopeId}`);
+        expect(raw).not.toBeNull();
+        const parsed = JSON.parse(String(raw)) as {
+            conversations: Array<{ id: string }>;
+            activeConversationId: string | null;
+        };
+        expect(parsed.conversations).toEqual([]);
+        expect(parsed.activeConversationId).toBeNull();
     });
 });

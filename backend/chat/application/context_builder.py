@@ -81,12 +81,13 @@ class ContextBuilder:
         if self.memory_manager is not None:
             history_snippet = " ".join(message.content for message in history[-3:])
             relevance_query = f"{current_message} {history_snippet}".strip()
-            memories = self.memory_manager.retrieve_relevant(
+            memories = self.memory_manager.retrieve_context_memories(
                 user_id,
                 relevance_query,
                 workspace_id=workspace_id,
                 project_id=project_id,
-                top_n=max_memories,
+                top_n_relevant=max_memories,
+                top_n_priority=max_memories,
             )
 
         history_snippet = " ".join(message.content for message in history[-3:])
@@ -100,14 +101,22 @@ class ContextBuilder:
                 conversation_id,
                 f"{workspace_id}:{project_id}",
             )
-            documents = self.document_retrieval_service.retrieve(
-                query=relevance_query,
-                top_k=max_documents,
-                owner_id=user_id,
-                workspace_id=workspace_id,
-                project_id=project_id,
-            )
-            citations = self.document_retrieval_service.format_citations(documents)
+            try:
+                documents = self.document_retrieval_service.retrieve(
+                    query=relevance_query,
+                    top_k=max_documents,
+                    owner_id=user_id,
+                    workspace_id=workspace_id,
+                    project_id=project_id,
+                )
+                citations = self.document_retrieval_service.format_citations(documents)
+            except Exception as exc:  # noqa: BLE001
+                self.logger.warning(
+                    "build_context() document retrieval failed; continuing without RAG context: %s",
+                    exc,
+                )
+                documents = []
+                citations = []
             self.logger.info(
                 "build_context() document retrieval output chunk_count=%s similarity_scores=%s owner_filter=%s conversation_filter=%s",
                 len(documents),
@@ -177,10 +186,11 @@ class ContextBuilder:
         """Return relevant long-term memories for the current request."""
         if self.memory_manager is None:
             return []
-        return self.memory_manager.retrieve_relevant(
+        return self.memory_manager.retrieve_context_memories(
             user_id,
             current_message,
             workspace_id=workspace_id,
             project_id=project_id,
-            top_n=max_memories,
+            top_n_relevant=max_memories,
+            top_n_priority=max_memories,
         )

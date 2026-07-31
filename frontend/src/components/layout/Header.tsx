@@ -61,7 +61,7 @@ export const Header = ({
         <header className="app-header">
             <div>
                 <p className="eyebrow">SandSwap AI</p>
-                <h1 className="title">Local Chat Console</h1>
+                <h1 className="title">AI Operating System</h1>
             </div>
             <div className="header-meta">
                 <HealthIndicator health={health} isLoading={healthLoading} error={healthError} />

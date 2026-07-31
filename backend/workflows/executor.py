@@ -51,6 +51,13 @@ class WorkflowExecutor:
     def execute(self, workflow: Workflow, context: WorkflowContext) -> WorkflowResult:
         """Run workflow tasks sequentially and return execution result."""
         started_at = time.perf_counter()
+        workflow.metadata.setdefault(
+            "tool_results", context.metadata.get("tool_results", [])
+        )
+        workflow.metadata.setdefault(
+            "tool_results_by_step_id",
+            context.metadata.get("tool_results_by_step_id", {}),
+        )
         self.logger.info(
             "Workflow started workflow_id=%s workflow_type=%s task_count=%d",
             workflow.workflow_id,
