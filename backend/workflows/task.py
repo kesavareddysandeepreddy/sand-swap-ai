@@ -40,6 +40,14 @@ class ToolRouterTask(Task):
     """Task implementation that delegates execution through ToolRouter."""
 
     def execute(self, context: WorkflowContext) -> dict[str, Any]:
+        cached_results = context.metadata.get("tool_results_by_step_id", {})
+        if isinstance(cached_results, dict):
+            cached = cached_results.get(self.definition.task_id)
+            if isinstance(cached, dict):
+                if cached.get("success") is False:
+                    raise RuntimeError(f"Tool task failed: {self.definition.name}")
+                return cached
+
         result = context.tool_router.invoke_task(
             task=self.definition,
             context=context.agent_context,
@@ -68,6 +76,10 @@ class AgentResponseTask(Task):
     """Task that produces the final response via selected agent."""
 
     def execute(self, context: WorkflowContext) -> dict[str, Any]:
+        tool_results = context.metadata.get("tool_results", [])
+        if isinstance(tool_results, list) and tool_results:
+            context.agent_context.metadata["tool_results"] = tool_results
+            context.agent_context.metadata["tool_outputs_present"] = True
         response_text = context.agent.execute(context.agent_context)
         return {"response_text": response_text}
 

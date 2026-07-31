@@ -48,6 +48,22 @@ class FakeChatService:
         _ = (user_id, workspace_id, project_id)
         return []
 
+    async def delete_conversation(
+        self,
+        *,
+        user_id: str,
+        conversation_id: str,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+    ) -> dict[str, bool]:
+        _ = (user_id, conversation_id, workspace_id, project_id)
+        return {
+            "deleted": True,
+            "database_deleted": True,
+            "cache_deleted": False,
+            "memory_deleted": False,
+        }
+
 
 class FakeChatServiceWithModels(FakeChatService):
     """Chat service stub exposing deterministic model inventory."""

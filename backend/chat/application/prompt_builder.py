@@ -14,33 +14,29 @@ class PromptBuilder:
         lines: list[str] = []
 
         if context.memories:
-            lines.append("Relevant memories:")
+            lines.append("Known user facts:")
             for memory in context.memories:
-                lines.append(f"- {memory.key}: {memory.value}")
+                value = memory.value
+                if memory.key.strip().lower() == "name":
+                    value = str(memory.value).strip().title()
+                lines.append(f"- {memory.key}: {value}")
             lines.append("")
 
         documents = getattr(context, "documents", [])
-        citations = getattr(context, "document_citations", [])
 
         if documents:
-            lines.append("Relevant retrieved documents:")
+            lines.append("Knowledge context:")
             for chunk in documents:
-                section = chunk.metadata.get("section", "-")
-                page = chunk.metadata.get("page", "-")
-                lines.append(
-                    f"- [{chunk.document_name}] (chunk={chunk.chunk_id}, page={page}, section={section})"
-                )
+                section = str(chunk.metadata.get("section", "")).strip()
+                if section and section != "-":
+                    lines.append(f"Source: {chunk.document_name} | Section: {section}")
+                else:
+                    lines.append(f"Source: {chunk.document_name}")
                 lines.append(chunk.text)
             lines.append("")
 
-        if citations:
-            lines.append("Citations:")
-            for citation in citations:
-                lines.append(f"- {citation}")
-            lines.append("")
-
         if context.history:
-            lines.append("Recent conversation:")
+            lines.append("Conversation history:")
             for message in context.history:
                 lines.append(f"{message.role}: {message.content}")
             lines.append("")
@@ -53,15 +49,20 @@ class PromptBuilder:
             lines.append(injected_context)
             lines.append("")
 
-        lines.append(f"User request: {PromptManager.chat(context.current_message)}")
+        lines.append(f"User question: {PromptManager.chat(context.current_message)}")
         return "\n".join(lines)
 
     def build_system_prompt(self) -> str:
         """Return the system prompt for chat responses."""
         return (
-            "You are a helpful assistant. Respond clearly, concisely, and naturally. "
-            "Use Markdown formatting by default: short paragraphs, bullet lists, numbered steps, "
-            "and bold for important entities when useful. "
-            "When relevant memories or retrieved documents are available, use them naturally in your answer "
-            "without always starting with a fixed phrase like 'Based on retrieved documents'."
+            "You are a helpful AI assistant. Answer clearly, concisely, and naturally using Markdown: "
+            "short paragraphs, bullet lists, numbered steps, and bold for important entities where useful. "
+            "For general questions (e.g. Kubernetes, Python, OAuth2, Git) answer directly from your knowledge — "
+            "do NOT refuse or say no context is available. "
+            "When retrieved documents or repository chunks are provided in the prompt, treat them as the "
+            "primary source of truth for questions about that private knowledge and blend them naturally "
+            "with your general knowledge when relevant. "
+            "When known user facts are provided, use them naturally in your answer and do not claim you "
+            "cannot remember user details. "
+            "Never say you cannot answer simply because retrieval returned no documents."
         )

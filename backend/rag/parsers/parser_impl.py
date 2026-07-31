@@ -303,16 +303,46 @@ class TextParser(DocumentParser):
 
 
 class JsonParser(DocumentParser):
-    """Parse JSON files."""
+    """Parse JSON and JSONC files."""
 
     def parse(self, file_path: str) -> ParsedDocument:
-        payload = json.loads(_read_text_file(Path(file_path)))
+        raw = _read_text_file(Path(file_path))
+
+        try:
+            payload = json.loads(raw)
+
+        except json.JSONDecodeError:
+            # Support JSONC (JSON with comments) used by tsconfig,
+            # VSCode settings, etc.
+
+            cleaned = re.sub(r"/\*.*?\*/", "", raw, flags=re.DOTALL)
+            cleaned = re.sub(r"//.*?$", "", cleaned, flags=re.MULTILINE)
+
+            try:
+                payload = json.loads(cleaned)
+
+            except json.JSONDecodeError:
+                # Final fallback:
+                # Treat as plain text instead of failing repository sync.
+                return ParsedDocument(
+                    text=raw,
+                    language="json",
+                    parser="text",
+                    metadata={
+                        "format": "json",
+                        "fallback": True,
+                    },
+                )
+
         pretty = json.dumps(payload, indent=2, sort_keys=True)
+
         return ParsedDocument(
             text=pretty,
             language="json",
             parser="json",
-            metadata={"root": type(payload).__name__},
+            metadata={
+                "root": type(payload).__name__,
+            },
         )
 
 

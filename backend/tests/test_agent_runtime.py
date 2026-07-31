@@ -10,7 +10,13 @@ from backend.agents.runtime import AgentRuntime
 from backend.agents.tool_router import ToolRouter
 from backend.chat.domain.conversation import Conversation
 from backend.mcp.models import MCPToolCallResult
+from backend.tools.capability_registry import CapabilityRegistry
+from backend.workers.universal_worker import UniversalWorker
+from backend.workflows.engine import WorkflowEngine
+from backend.workflows.executor import WorkflowExecutor
 from backend.workflows.models import WorkflowTask
+from backend.workflows.queue import InMemoryWorkflowQueue
+from backend.workflows.registry import WorkflowRegistry
 
 
 class FakeOllamaClient:
@@ -174,11 +180,24 @@ def test_runtime_selects_agent_plans_and_executes() -> None:
     registry = AgentRegistry()
     registry.register(general_agent)
 
+    workflow_engine = WorkflowEngine(
+        registry=WorkflowRegistry(),
+        executor=WorkflowExecutor(),
+        queue=InMemoryWorkflowQueue(),
+    )
+    worker = UniversalWorker(
+        planner=PlannerAgent(),
+        workflow_engine=workflow_engine,
+        tool_router=ToolRouter(),
+        agent=general_agent,
+        capability_registry=CapabilityRegistry(),
+    )
     runtime = AgentRuntime(
         registry=registry,
         planner=PlannerAgent(),
         tool_router=ToolRouter(),
-        executor=AgentExecutor(),
+        executor=AgentExecutor(workflow_engine=workflow_engine),
+        worker=worker,
     )
 
     result = runtime.execute(_context())
@@ -187,6 +206,7 @@ def test_runtime_selects_agent_plans_and_executes() -> None:
     assert result.response_text == "runtime response"
     assert result.plan.selected_agent == "general_chat_agent"
     assert result.metadata["workflow_status"] == "completed"
+    assert isinstance(result.metadata["execution_trace_id"], str)
 
 
 def test_planner_adds_mcp_task_from_context_metadata() -> None:
@@ -212,11 +232,24 @@ def test_runtime_executes_mcp_tool_when_planned() -> None:
     router = ToolRouter()
     router.register_tool("MCP", mcp)
 
+    workflow_engine = WorkflowEngine(
+        registry=WorkflowRegistry(),
+        executor=WorkflowExecutor(),
+        queue=InMemoryWorkflowQueue(),
+    )
+    worker = UniversalWorker(
+        planner=PlannerAgent(),
+        workflow_engine=workflow_engine,
+        tool_router=router,
+        agent=general_agent,
+        capability_registry=CapabilityRegistry(),
+    )
     runtime = AgentRuntime(
         registry=registry,
         planner=PlannerAgent(),
         tool_router=router,
-        executor=AgentExecutor(),
+        executor=AgentExecutor(workflow_engine=workflow_engine),
+        worker=worker,
     )
 
     context = _context()

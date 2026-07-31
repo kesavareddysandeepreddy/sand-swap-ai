@@ -100,6 +100,45 @@ class ConversationStore:
         self.conn.commit()
         return cursor.rowcount > 0
 
+    def find_rows_referencing(
+        self,
+        reference_ids: list[str],
+        user_id: str | None = None,
+    ) -> list[dict[str, str]]:
+        """Return rows whose id or payload contains any provided reference ids."""
+        normalized = [reference_id for reference_id in reference_ids if reference_id]
+        if not normalized:
+            return []
+
+        id_placeholders = ",".join("?" for _ in normalized)
+        payload_predicate = " OR ".join("payload LIKE ?" for _ in normalized)
+        sql = (
+            "SELECT id, user_id, created_at, updated_at, payload "
+            "FROM conversations "
+            f"WHERE (id IN ({id_placeholders}) OR ({payload_predicate}))"
+        )
+
+        params: list[str] = [
+            *normalized,
+            *[f"%{reference_id}%" for reference_id in normalized],
+        ]
+        if user_id is not None:
+            sql += " AND user_id = ?"
+            params.append(user_id)
+
+        sql += " ORDER BY updated_at DESC"
+        rows = self.conn.execute(sql, tuple(params)).fetchall()
+        return [
+            {
+                "id": str(row["id"]),
+                "user_id": str(row["user_id"]),
+                "created_at": str(row["created_at"]),
+                "updated_at": str(row["updated_at"]),
+                "payload": str(row["payload"]),
+            }
+            for row in rows
+        ]
+
     def close(self) -> None:
         """Close the underlying sqlite connection."""
         self.conn.close()

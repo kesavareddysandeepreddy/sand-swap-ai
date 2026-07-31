@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -93,6 +94,29 @@ def _auth_headers(client: TestClient, user_id: str, email: str) -> dict[str, str
     return {"Authorization": f"Bearer {token}"}
 
 
+def _db_document_owner_row(
+    client: TestClient,
+    document_id: str,
+) -> tuple[str, str, str, str] | None:
+    db_path = Path(
+        client.app.state.container.resolve(
+            "enterprise_document_owner_repository"
+        ).db_path
+    )
+    with sqlite3.connect(str(db_path)) as connection:
+        row = connection.execute(
+            """
+            SELECT document_id, user_id, workspace_id, project_id
+            FROM enterprise_document_owners
+            WHERE document_id = ?
+            """,
+            (document_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return (str(row[0]), str(row[1]), str(row[2]), str(row[3]))
+
+
 def test_documents_are_scoped_to_active_workspace(runtime_client: TestClient) -> None:
     headers = _auth_headers(runtime_client, "doc-user", "doc-user@example.com")
 
@@ -151,3 +175,100 @@ def test_documents_are_scoped_to_active_workspace(runtime_client: TestClient) ->
     list_primary = runtime_client.get("/documents", headers=headers)
     assert list_primary.status_code == 200
     assert [item["name"] for item in list_primary.json()] == ["one.txt"]
+
+
+def test_document_delete_removes_document_owner_row(runtime_client: TestClient) -> None:
+    headers = _auth_headers(
+        runtime_client, "doc-delete-owner", "doc-delete-owner@example.com"
+    )
+    session = runtime_client.get("/auth/session", headers=headers)
+    assert session.status_code == 200
+    scoped_headers = {
+        **headers,
+        "X-Workspace-Id": str(session.json()["workspace_id"]),
+        "X-Project-Id": str(session.json()["project_id"]),
+    }
+
+    uploaded = runtime_client.post(
+        "/documents/upload",
+        files={"file": ("owner-delete.txt", b"owner cleanup", "text/plain")},
+        headers=scoped_headers,
+    )
+    assert uploaded.status_code == 201
+    document_id = str(uploaded.json()["id"])
+    assert _db_document_owner_row(runtime_client, document_id) is not None
+
+    deleted = runtime_client.delete(f"/documents/{document_id}", headers=scoped_headers)
+    assert deleted.status_code == 204
+    assert _db_document_owner_row(runtime_client, document_id) is None
+
+
+def test_document_delete_all_removes_document_owner_rows(
+    runtime_client: TestClient,
+) -> None:
+    headers = _auth_headers(
+        runtime_client, "doc-delete-all-owner", "doc-delete-all-owner@example.com"
+    )
+    session = runtime_client.get("/auth/session", headers=headers)
+    assert session.status_code == 200
+    scoped_headers = {
+        **headers,
+        "X-Workspace-Id": str(session.json()["workspace_id"]),
+        "X-Project-Id": str(session.json()["project_id"]),
+    }
+
+    first = runtime_client.post(
+        "/documents/upload",
+        files={"file": ("owner-one.txt", b"one", "text/plain")},
+        headers=scoped_headers,
+    )
+    second = runtime_client.post(
+        "/documents/upload",
+        files={"file": ("owner-two.txt", b"two", "text/plain")},
+        headers=scoped_headers,
+    )
+    assert first.status_code == 201
+    assert second.status_code == 201
+    first_id = str(first.json()["id"])
+    second_id = str(second.json()["id"])
+    assert _db_document_owner_row(runtime_client, first_id) is not None
+    assert _db_document_owner_row(runtime_client, second_id) is not None
+
+    deleted = runtime_client.delete("/documents", headers=scoped_headers)
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] == 2
+    assert _db_document_owner_row(runtime_client, first_id) is None
+    assert _db_document_owner_row(runtime_client, second_id) is None
+
+
+def test_document_list_prunes_orphan_document_owner_rows(
+    runtime_client: TestClient,
+) -> None:
+    headers = _auth_headers(
+        runtime_client, "doc-orphan-owner", "doc-orphan-owner@example.com"
+    )
+    session = runtime_client.get("/auth/session", headers=headers)
+    assert session.status_code == 200
+    user_id = str(session.json()["user_id"])
+    workspace_id = str(session.json()["workspace_id"])
+    project_id = str(session.json()["project_id"])
+    scoped_headers = {
+        **headers,
+        "X-Workspace-Id": workspace_id,
+        "X-Project-Id": project_id,
+    }
+
+    orphan_document_id = "orphan-document-id"
+    ownership_service = runtime_client.app.state.container.resolve("ownership_service")
+    ownership_service.assign_document_owner(
+        document_id=orphan_document_id,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        project_id=project_id,
+    )
+    assert _db_document_owner_row(runtime_client, orphan_document_id) is not None
+
+    listed = runtime_client.get("/documents", headers=scoped_headers)
+    assert listed.status_code == 200
+    assert all(item["id"] != orphan_document_id for item in listed.json())
+    assert _db_document_owner_row(runtime_client, orphan_document_id) is None

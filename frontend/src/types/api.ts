@@ -39,6 +39,14 @@ export interface ChatConversationListResponse {
     items: ChatConversationRecord[];
 }
 
+export interface ChatConversationDeleteResponse {
+    conversation_id: string;
+    deleted: boolean;
+    database_deleted: boolean;
+    cache_deleted: boolean;
+    memory_deleted: boolean;
+}
+
 export interface ApiErrorPayload {
     detail?: string;
 }
@@ -181,4 +189,193 @@ export interface RetrievedChunk {
 export interface RetrievalResponse {
     chunks: RetrievedChunk[];
     citations: string[];
+}
+
+export type KnowledgeSourceType =
+    | "Upload"
+    | "GitHub"
+    | "SharePoint"
+    | "OneDrive"
+    | "GoogleDrive"
+    | "AzureDevOps"
+    | "Jira"
+    | "Confluence"
+    | "Website"
+    | "Database"
+    | "Custom";
+
+export interface KnowledgeSourceRecord {
+    id: string;
+    project_id: string;
+    name: string;
+    source_type: KnowledgeSourceType;
+    connection_config: Record<string, unknown>;
+    enabled: boolean;
+    status: string;
+    file_count: number;
+    chunk_count: number;
+    embedding_count: number;
+    last_sync: string | null;
+    created_at: string;
+    updated_at: string;
+    metadata: Record<string, unknown>;
+}
+
+export interface CreateKnowledgeSourceRequest {
+    project_id: string;
+    name: string;
+    source_type: KnowledgeSourceType;
+    connection_config?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
+}
+
+export interface DeleteKnowledgeSourceResponse {
+    deleted: boolean;
+}
+
+export interface KnowledgeSourcesHealthResponse {
+    status: string;
+    connectors_total: number;
+    connectors: Record<string, string>;
+}
+
+export interface ConnectorOperationResponse {
+    source_id: string;
+    status: string;
+    detail: string;
+    metadata: Record<string, unknown>;
+}
+
+export interface ConnectorDiscoveryResponse {
+    source_id: string;
+    items: Array<Record<string, unknown>>;
+}
+
+export interface UploadSessionRecord {
+    id: string;
+    project_id: string;
+    source_id: string;
+    status: string;
+    total_files: number;
+    processed_files: number;
+    failed_files: number;
+    skipped_files: number;
+    started_at: string;
+    completed_at: string | null;
+    current_file: string | null;
+    metadata: Record<string, unknown>;
+}
+
+export interface UploadJobRecord {
+    id: string;
+    session_id: string;
+    file_name: string;
+    file_size: number;
+    mime_type: string;
+    parser: string;
+    status: string;
+    chunks_created: number;
+    embeddings_created: number;
+    started_at: string | null;
+    completed_at: string | null;
+    error: string | null;
+}
+
+export interface UploadProgressRecord {
+    session_id: string;
+    status: string;
+    total_files: number;
+    processed_files: number;
+    remaining_files: number;
+    failed_files: number;
+    skipped_files: number;
+    progress_percent: number;
+    current_file: string | null;
+    eta: string | null;
+}
+
+export interface UploadSummaryRecord {
+    session_id: string;
+    status: string;
+    processed_files: number;
+    remaining_files: number;
+    failed_files: number;
+    skipped_files: number;
+    current_file: string | null;
+}
+
+export interface CreateUploadSessionRequest {
+    project_id: string;
+    source_id: string;
+    total_files?: number;
+    metadata?: Record<string, unknown>;
+}
+
+export interface EnqueueUploadFilesRequest {
+    files: Array<{
+        file_name: string;
+        file_size: number;
+        mime_type: string;
+        parser: string;
+    }>;
+}
+
+export interface ExecutionTraceSummary {
+    trace_id: string;
+    worker_name: string;
+    request_id: string | null;
+    started_at: string;
+    completed_at: string | null;
+    total_duration_ms: number;
+}
+
+export interface ExecutionStep {
+    id: string;
+    stage: string;
+    status: string;
+    started_at: string | null;
+    completed_at: string | null;
+    duration_ms: number;
+    metadata: Record<string, unknown>;
+}
+
+export type ExecutionState = "planning" | "executing" | "completed" | "failed";
+
+export interface TaskPlanStep {
+    step_id: string;
+    order: number;
+    title: string;
+    action: string;
+    target: string;
+    capabilities: string[];
+    estimated_cost: number;
+    complexity: string;
+}
+
+export interface TaskPlanDependency {
+    predecessor_step_id: string;
+    successor_step_id: string;
+    reason: string;
+}
+
+export interface TaskPlanGoal {
+    original_request: string;
+    actions: string[];
+    targets: string[];
+    constraints: string[];
+    expected_outputs: string[];
+}
+
+export interface TaskPlan {
+    goal: TaskPlanGoal;
+    steps: TaskPlanStep[];
+    dependencies: TaskPlanDependency[];
+    inferred_capabilities: string[];
+    estimated_total_cost: number;
+    overall_complexity: string;
+}
+
+export interface ExecutionTraceDetail extends ExecutionTraceSummary {
+    metadata: Record<string, unknown>;
+    steps: ExecutionStep[];
 }

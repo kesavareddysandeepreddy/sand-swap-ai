@@ -10,7 +10,7 @@ interface ConversationSidebarProps {
     onSelectConversation: (id: string) => void;
     onNewConversation: () => void;
     onRenameConversation: (id: string, nextTitle: string) => void;
-    onDeleteConversation: (id: string) => void;
+    onDeleteConversation: (id: string) => void | Promise<void>;
 }
 
 export const ConversationSidebar = ({
@@ -40,7 +40,7 @@ export const ConversationSidebar = ({
         if (!shouldDelete) {
             return;
         }
-        onDeleteConversation(conversation.id);
+        void onDeleteConversation(conversation.id);
         setOpenMenuId(null);
     };
 
@@ -70,6 +70,22 @@ export const ConversationSidebar = ({
                     }
                 >
                     Documents
+                </NavLink>
+                <NavLink
+                    to="/uploads"
+                    className={({ isActive }) =>
+                        `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
+                    }
+                >
+                    Uploads
+                </NavLink>
+                <NavLink
+                    to="/knowledge-sources"
+                    className={({ isActive }) =>
+                        `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
+                    }
+                >
+                    Knowledge Sources
                 </NavLink>
                 <NavLink
                     to="/inspector"

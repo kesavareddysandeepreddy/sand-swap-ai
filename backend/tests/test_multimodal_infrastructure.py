@@ -370,6 +370,11 @@ def test_runtime_registers_multimodal_dependencies(
     assert container.exists("mcp_discovery_service") is True
     assert container.exists("mcp_session_manager") is True
     assert container.exists("mcp_client") is True
+    assert container.exists("capability_registry") is True
+    assert container.exists("tool_registry") is True
+    assert container.exists("execution_recorder") is True
+    assert container.exists("worker_registry") is True
+    assert container.exists("universal_worker") is True
     assert container.exists("agent_runtime") is True
 
 

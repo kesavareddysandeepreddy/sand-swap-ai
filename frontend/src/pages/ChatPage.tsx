@@ -4,7 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { documentsApi } from "../api/documents";
 import { ChatWindow } from "../components/chat/ChatWindow";
 import { MessageComposer } from "../components/chat/MessageComposer";
-import type { ProjectRecord, WorkspaceRecord } from "../types/api";
+import { ExecutionTimeline } from "../components/execution/ExecutionTimeline";
+import { useExecution } from "../hooks/useExecution";
+import type {
+    ExecutionTraceSummary,
+    ProjectRecord,
+    WorkspaceRecord,
+} from "../types/api";
 import type { ReturnTypeUseAuth } from "../types/auth";
 import type { ChatMessage } from "../types/chat";
 
@@ -39,6 +45,21 @@ export const ChatPage = ({
     const [isUploading, setIsUploading] = useState(false);
     const [isDragOver, setIsDragOver] = useState(false);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const {
+        recent,
+        selectedTrace,
+        isLoadingRecent,
+        isLoadingTrace,
+        recentError,
+        traceError,
+        hasLoadedRecent,
+        selectTrace,
+        ensureFirstTraceLoaded,
+        refreshAfterChatCompletion,
+    } = useExecution();
+
+    const [isTimelineExpanded, setIsTimelineExpanded] = useState(false);
+    const [isPlanExpanded, setIsPlanExpanded] = useState(false);
 
     const activeWorkspaceName =
         auth.workspaces.find((workspace: WorkspaceRecord) => workspace.id === auth.activeWorkspaceId)?.name
@@ -106,6 +127,31 @@ export const ChatPage = ({
             return;
         }
         await uploadFile(file);
+    };
+
+    const handleSendMessage = async (message: string) => {
+        await onSendMessage(message);
+        await refreshAfterChatCompletion();
+    };
+
+    const handleTimelineToggle = async () => {
+        const nextExpanded = !isTimelineExpanded;
+        setIsTimelineExpanded(nextExpanded);
+        if (nextExpanded) {
+            await ensureFirstTraceLoaded();
+        }
+    };
+
+    const handlePlanToggle = async () => {
+        const nextExpanded = !isPlanExpanded;
+        setIsPlanExpanded(nextExpanded);
+        if (nextExpanded) {
+            await ensureFirstTraceLoaded();
+        }
+    };
+
+    const handleSelectTrace = async (trace: ExecutionTraceSummary) => {
+        await selectTrace(trace.trace_id);
     };
 
     return (
@@ -354,10 +400,32 @@ export const ChatPage = ({
             {uploadSuccessMessage ? (
                 <p className="memory-status">{uploadSuccessMessage}</p>
             ) : null}
+
+            <ExecutionTimeline
+                recent={recent}
+                selectedTrace={selectedTrace}
+                isLoadingRecent={isLoadingRecent}
+                isLoadingTrace={isLoadingTrace}
+                recentError={recentError}
+                traceError={traceError}
+                hasLoadedRecent={hasLoadedRecent}
+                isTimelineExpanded={isTimelineExpanded}
+                onTimelineToggle={() => {
+                    void handleTimelineToggle();
+                }}
+                isPlanExpanded={isPlanExpanded}
+                onPlanToggle={() => {
+                    void handlePlanToggle();
+                }}
+                onSelectTrace={(trace) => {
+                    void handleSelectTrace(trace);
+                }}
+            />
+
             <ChatWindow messages={messages} isSending={isSending} />
             <MessageComposer
                 isSending={isSending || isUploading}
-                onSendMessage={onSendMessage}
+                onSendMessage={handleSendMessage}
                 onUploadClick={() => fileInputRef.current?.click()}
                 isUploading={isUploading}
             />

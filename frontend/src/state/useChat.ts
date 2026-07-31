@@ -357,23 +357,65 @@ export const useChat = (ownerId: string, storageScopeId: string) => {
         );
     };
 
-    const deleteConversation = (conversationId: string) => {
-        setConversations((previous) => {
-            const next = previous.filter(
-                (conversation) => conversation.id !== conversationId
-            );
+    const deleteConversation = async (conversationId: string): Promise<void> => {
+        try {
+            console.info("DELETE_TRACE_STEP1 ui", {
+                conversation_id: conversationId,
+            });
+            if (conversationId.startsWith(DRAFT_ID_PREFIX)) {
+                setConversations((previous) => {
+                    const next = previous.filter(
+                        (conversation) => conversation.id !== conversationId
+                    );
 
-            setActiveConversationId((previousActive) => {
-                if (previousActive !== conversationId) {
-                    return previousActive;
-                }
-                return next[0]?.id ?? null;
+                    const nextActiveId = activeConversationId === conversationId
+                        ? (next[0]?.id ?? null)
+                        : activeConversationId;
+                    persistChatState(storageScopeId, next, nextActiveId);
+
+                    setActiveConversationId((previousActive) => {
+                        if (previousActive !== conversationId) {
+                            return previousActive;
+                        }
+                        return next[0]?.id ?? null;
+                    });
+
+                    return next;
+                });
+                setError(null);
+                return;
+            }
+
+            const result = await apiClient.deleteChatConversation(conversationId);
+            if (!result.deleted || !result.database_deleted) {
+                setError("Failed to delete conversation.");
+                return;
+            }
+
+            setConversations((previous) => {
+                const next = previous.filter(
+                    (conversation) => conversation.id !== conversationId
+                );
+
+                const nextActiveId = activeConversationId === conversationId
+                    ? (next[0]?.id ?? null)
+                    : activeConversationId;
+                persistChatState(storageScopeId, next, nextActiveId);
+
+                setActiveConversationId((previousActive) => {
+                    if (previousActive !== conversationId) {
+                        return previousActive;
+                    }
+                    return next[0]?.id ?? null;
+                });
+
+                return next;
             });
 
-            return next;
-        });
-
-        setError(null);
+            setError(null);
+        } catch (err) {
+            setError(err instanceof ApiError ? err.message : "Failed to delete conversation.");
+        }
     };
 
     return {

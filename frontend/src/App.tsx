@@ -3,8 +3,10 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/layout/AppLayout";
 import { ChatPage } from "./pages/ChatPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
+import { KnowledgeSourcesPage } from "./pages/KnowledgeSourcesPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { RetrievalInspectorPage } from "./pages/RetrievalInspectorPage";
+import { UploadsPage } from "./pages/UploadsPage";
 import { useAuth } from "./state/useAuth";
 import { useChat } from "./state/useChat";
 import { useHealth } from "./state/useHealth";
@@ -68,6 +70,11 @@ const App = () => {
                 />
                 <Route path="memory" element={<MemoryPage ownerId={workspaceScopeId} />} />
                 <Route path="documents" element={<DocumentsPage ownerId={workspaceScopeId} />} />
+                <Route path="uploads" element={<UploadsPage projectId={auth.activeProjectId ?? "default"} />} />
+                <Route
+                    path="knowledge-sources"
+                    element={<KnowledgeSourcesPage projectId={auth.activeProjectId ?? "default"} />}
+                />
                 <Route path="inspector" element={<RetrievalInspectorPage ownerId={workspaceScopeId} />} />
             </Route>
             <Route path="*" element={<Navigate to="/chat" replace />} />

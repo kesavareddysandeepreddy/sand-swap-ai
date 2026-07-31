@@ -165,12 +165,28 @@ class OwnershipService:
         """Look up owner metadata for a document."""
         return self.document_owner_repository.get_by_document(document_id)
 
+    def list_document_owners(self, user_id: str) -> list[DocumentOwner]:
+        """List document ownership metadata for a user."""
+        return self.document_owner_repository.list_by_user(user_id)
+
+    def unassign_document_owner(self, document_id: str) -> bool:
+        """Remove owner metadata for a document."""
+        return self.document_owner_repository.unassign(document_id)
+
     def get_conversation_owner(
         self,
         conversation_id: str,
     ) -> ConversationOwner | None:
         """Look up owner metadata for a conversation."""
         return self.conversation_owner_repository.get_by_conversation(conversation_id)
+
+    def list_conversation_owners(self, user_id: str) -> list[ConversationOwner]:
+        """List conversation ownership metadata for a user."""
+        return self.conversation_owner_repository.list_by_user(user_id)
+
+    def unassign_conversation_owner(self, conversation_id: str) -> bool:
+        """Remove owner metadata for a conversation."""
+        return self.conversation_owner_repository.unassign(conversation_id)
 
     def get_memory_owner(self, memory_id: str) -> MemoryOwner | None:
         """Look up owner metadata for a memory item."""

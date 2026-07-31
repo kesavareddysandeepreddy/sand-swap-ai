@@ -46,7 +46,7 @@ describe("DocumentsPage", () => {
             </BrowserRouter>
         );
 
-        expect(screen.getByText("runbook.md")).toBeInTheDocument();
+        expect(screen.getByText(/runbook\.md/)).toBeInTheDocument();
         expect(screen.getByText("indexed")).toBeInTheDocument();
     });
 

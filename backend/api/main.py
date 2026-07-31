@@ -31,11 +31,17 @@ class TokenValidationMiddleware(BaseHTTPMiddleware):
         token_service = app.state.container.resolve("token_service")
         ownership_service = app.state.container.resolve("ownership_service")
         auth_header = request.headers.get("Authorization", "")
+        requested_workspace_id = request.headers.get("X-Workspace-Id")
+        if requested_workspace_id is not None:
+            requested_workspace_id = requested_workspace_id.strip() or None
+        requested_project_id = request.headers.get("X-Project-Id")
+        if requested_project_id is not None:
+            requested_project_id = requested_project_id.strip() or None
         current_user = CurrentUser.anonymous()
         ownership_context = {
             "user_id": "anonymous",
-            "workspace_id": "default",
-            "project_id": "default",
+            "workspace_id": requested_workspace_id or "default",
+            "project_id": requested_project_id or "default",
         }
 
         if auth_header.lower().startswith("bearer "):
@@ -45,14 +51,6 @@ class TokenValidationMiddleware(BaseHTTPMiddleware):
                     claims = token_service.verify_access_token(token)
                     current_user = CurrentUser.authenticated(claims)
                     if current_user.user_id is not None:
-                        requested_workspace_id = request.headers.get("X-Workspace-Id")
-                        if requested_workspace_id is not None:
-                            requested_workspace_id = (
-                                requested_workspace_id.strip() or None
-                            )
-                        requested_project_id = request.headers.get("X-Project-Id")
-                        if requested_project_id is not None:
-                            requested_project_id = requested_project_id.strip() or None
                         try:
                             ownership_context = (
                                 ownership_service.resolve_request_context(

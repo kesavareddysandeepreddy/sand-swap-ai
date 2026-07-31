@@ -120,6 +120,16 @@ class ConversationOwnerRepository(ABC):
         """Fetch ownership relation for a conversation."""
         raise NotImplementedError
 
+    @abstractmethod
+    def list_by_user(self, user_id: str) -> list[ConversationOwner]:
+        """List ownership relations for a user."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def unassign(self, conversation_id: str) -> bool:
+        """Remove ownership relation for a conversation."""
+        raise NotImplementedError
+
 
 class DocumentOwnerRepository(ABC):
     """Persistence contract for document ownership links."""
@@ -132,6 +142,16 @@ class DocumentOwnerRepository(ABC):
     @abstractmethod
     def get_by_document(self, document_id: str) -> DocumentOwner | None:
         """Fetch ownership relation for a document."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def list_by_user(self, user_id: str) -> list[DocumentOwner]:
+        """List ownership relations for a user."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def unassign(self, document_id: str) -> bool:
+        """Remove ownership relation for a document."""
         raise NotImplementedError
 
 

@@ -100,12 +100,12 @@ class LLMMemoryExtractor:
                 if key in result and isinstance(result[key], list):
                     return result[key]
 
-            if {"memory_type", "key", "value"}.issubset(result) or (
-                any(alias in result for alias in ("memory_type", "type"))
-                and any(alias in result for alias in ("key", "memory_key", "fact_key"))
-                and any(
-                    alias in result for alias in ("value", "memory_value", "fact_value")
-                )
+            # Accept any single memory object that contains a key and value.
+            # memory_type is optional because _normalize_item() defaults it to "fact".
+            if any(
+                alias in result for alias in ("key", "memory_key", "fact_key")
+            ) and any(
+                alias in result for alias in ("value", "memory_value", "fact_value")
             ):
                 return [result]
 
