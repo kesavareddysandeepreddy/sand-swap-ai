@@ -10,6 +10,17 @@ from uuid import uuid4
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from backend.agent_orchestration.application.workflow_service import WorkflowService
+from backend.agent_orchestration.executor.workflow_executor import (
+    WorkflowExecutionEngine,
+)
+from backend.agent_orchestration.infrastructure.sqlite_workflow_repository import (
+    SQLiteWorkflowRepository,
+)
+from backend.agent_orchestration.planner.validator import WorkflowValidator
+from backend.agent_orchestration.scheduler.background_scheduler import (
+    BackgroundWorkflowScheduler,
+)
 from backend.agent_studio.application.agent_service import (
     AgentService as AgentStudioService,
 )
@@ -175,6 +186,15 @@ def _get_enterprise_db_path() -> str:
 def _get_agent_studio_db_path() -> str:
     """Return the configured SQLite path for Agent Studio data."""
     raw_path = os.getenv("AGENT_STUDIO_DB_PATH", "data/agent_studio/agent_studio.db")
+    return str(Path(raw_path).resolve())
+
+
+def _get_agent_orchestration_db_path() -> str:
+    """Return the configured SQLite path for workflow orchestration data."""
+    raw_path = os.getenv(
+        "AGENT_ORCHESTRATION_DB_PATH",
+        "data/agent_orchestration/workflows.db",
+    )
     return str(Path(raw_path).resolve())
 
 
@@ -522,6 +542,20 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         memory_manager=memory_manager,
         document_retrieval_service=document_retrieval_service,
     )
+    orchestration_repository = SQLiteWorkflowRepository(
+        db_path=_get_agent_orchestration_db_path()
+    )
+    orchestration_validator = WorkflowValidator()
+    orchestration_engine = WorkflowExecutionEngine()
+    orchestration_scheduler = BackgroundWorkflowScheduler()
+    orchestration_service = WorkflowService(
+        repository=orchestration_repository,
+        validator=orchestration_validator,
+        engine=orchestration_engine,
+        scheduler=orchestration_scheduler,
+        agent_service=agent_studio_service,
+        llm_client=ollama_client,
+    )
     multimodal_supported_types = config_manager.get("multimodal.supported_types", [])
     if not isinstance(multimodal_supported_types, list):
         multimodal_supported_types = []
@@ -745,6 +779,11 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
     shared_container.register("knowledge_source_service", knowledge_source_service)
     shared_container.register("agent_studio_repository", agent_studio_repository)
     shared_container.register("agent_studio_service", agent_studio_service)
+    shared_container.register("workflow_repository", orchestration_repository)
+    shared_container.register("workflow_validator", orchestration_validator)
+    shared_container.register("workflow_execution_engine", orchestration_engine)
+    shared_container.register("workflow_scheduler", orchestration_scheduler)
+    shared_container.register("workflow_service", orchestration_service)
     shared_container.register("upload_repository", upload_repository)
     shared_container.register("upload_queue", upload_queue)
     shared_container.register("upload_pipeline", upload_pipeline)
@@ -891,6 +930,15 @@ def get_upload_manager_service() -> UploadManagerService:
     return container.resolve("upload_manager_service")
 
 
+def get_workflow_service() -> WorkflowService:
+    """Resolve the shared workflow orchestration service."""
+    container = get_container()
+    if container.exists("workflow_service"):
+        return container.resolve("workflow_service")
+    register_runtime_dependencies(container)
+    return container.resolve("workflow_service")
+
+
 def get_connector_manager() -> ConnectorManager:
     """Resolve the shared connector manager service."""
     container = get_container()
@@ -918,4 +966,9 @@ UploadManagerServiceDependency = Annotated[
 ConnectorManagerDependency = Annotated[
     ConnectorManager,
     Depends(get_connector_manager),
+]
+
+WorkflowServiceDependency = Annotated[
+    WorkflowService,
+    Depends(get_workflow_service),
 ]
