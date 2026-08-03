@@ -421,6 +421,155 @@ export interface AgentDashboardResponse {
     total_versions: number;
 }
 
+export interface WorkflowNodeRecord {
+    id: string;
+    node_type: string;
+    name: string;
+    agent_id?: string | null;
+    x?: number;
+    y?: number;
+    config?: Record<string, unknown>;
+}
+
+export interface WorkflowEdgeRecord {
+    id: string;
+    source_node_id: string;
+    target_node_id: string;
+    label?: string;
+    condition?: string;
+}
+
+export interface WorkflowRecord {
+    id: string;
+    name: string;
+    description: string;
+    enabled: boolean;
+    owner_id: string;
+    workspace_id: string;
+    project_id: string;
+    nodes: WorkflowNodeRecord[];
+    edges: WorkflowEdgeRecord[];
+    execution_settings: Record<string, unknown>;
+    shared_memory_settings: Record<string, unknown>;
+    approval_settings: Record<string, unknown>;
+    retry_settings: Record<string, unknown>;
+    timeout_settings: Record<string, unknown>;
+    version: number;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface WorkflowCreateRequest {
+    name: string;
+    description?: string;
+    enabled?: boolean;
+    nodes: WorkflowNodeRecord[];
+    edges: WorkflowEdgeRecord[];
+    execution_settings?: Record<string, unknown>;
+    shared_memory_settings?: Record<string, unknown>;
+    approval_settings?: Record<string, unknown>;
+    retry_settings?: Record<string, unknown>;
+    timeout_settings?: Record<string, unknown>;
+}
+
+export interface WorkflowUpdateRequest {
+    name?: string;
+    description?: string;
+    enabled?: boolean;
+    nodes?: WorkflowNodeRecord[];
+    edges?: WorkflowEdgeRecord[];
+    execution_settings?: Record<string, unknown>;
+    shared_memory_settings?: Record<string, unknown>;
+    approval_settings?: Record<string, unknown>;
+    retry_settings?: Record<string, unknown>;
+    timeout_settings?: Record<string, unknown>;
+}
+
+export interface WorkflowVersionResponse {
+    id: string;
+    workflow_id: string;
+    version_number: number;
+    change_summary: string;
+    snapshot: Record<string, unknown>;
+    created_at: string;
+}
+
+export interface WorkflowValidationResponse {
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+}
+
+export interface WorkflowExecutionRequest {
+    input_payload: Record<string, unknown>;
+    wait_for_completion: boolean;
+}
+
+export interface WorkflowExecutionResponse {
+    run_id: string;
+    status: string;
+}
+
+export interface WorkflowRunActionRequest {
+    action: string;
+    edited_input: Record<string, unknown>;
+}
+
+export interface WorkflowNodeExecutionRecord {
+    node_id: string;
+    node_name: string;
+    node_type: string;
+    status: string;
+    started_at: string | null;
+    completed_at: string | null;
+    duration_ms: number;
+    error: string;
+    output: Record<string, unknown>;
+}
+
+export interface WorkflowAgentMessage {
+    sender: string;
+    receiver: string;
+    timestamp: string;
+    payload: Record<string, unknown>;
+    reasoning: string;
+    artifacts: Array<Record<string, unknown>>;
+    tool_outputs: Array<Record<string, unknown>>;
+    metadata: Record<string, unknown>;
+}
+
+export interface WorkflowRunRecord {
+    id: string;
+    workflow_id: string;
+    status: string;
+    input_payload: Record<string, unknown>;
+    context: Record<string, unknown>;
+    started_at: string | null;
+    ended_at: string | null;
+    duration_ms: number;
+    error: string;
+    current_node_id: string;
+    pending_node_id: string;
+    cancel_requested: boolean;
+    node_records: WorkflowNodeExecutionRecord[];
+    messages: WorkflowAgentMessage[];
+    artifacts: Array<Record<string, unknown>>;
+    logs: Array<Record<string, unknown>>;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface WorkflowDashboardResponse {
+    running: number;
+    queued: number;
+    succeeded: number;
+    failed: number;
+    average_runtime_ms: number;
+    average_token_usage: number;
+    agent_usage: Record<string, number>;
+    most_active_workflows: Array<Record<string, unknown>>;
+}
+
 export interface CreateKnowledgeSourceRequest {
     project_id: string;
     name: string;

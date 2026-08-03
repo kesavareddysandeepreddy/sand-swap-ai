@@ -88,6 +88,46 @@ export const ConversationSidebar = ({
                     Agent Studio
                 </NavLink>
                 <NavLink
+                    to="/workflows"
+                    className={({ isActive }) =>
+                        `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
+                    }
+                >
+                    Workflows
+                </NavLink>
+                <NavLink
+                    to="/workflows/builder"
+                    className={({ isActive }) =>
+                        `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
+                    }
+                >
+                    Workflow Builder
+                </NavLink>
+                <NavLink
+                    to="/workflows/runs"
+                    className={({ isActive }) =>
+                        `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
+                    }
+                >
+                    Workflow Runs
+                </NavLink>
+                <NavLink
+                    to="/workflows/history"
+                    className={({ isActive }) =>
+                        `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
+                    }
+                >
+                    Workflow History
+                </NavLink>
+                <NavLink
+                    to="/workflows/monitor"
+                    className={({ isActive }) =>
+                        `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
+                    }
+                >
+                    Execution Monitor
+                </NavLink>
+                <NavLink
                     to="/knowledge-sources"
                     className={({ isActive }) =>
                         `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`

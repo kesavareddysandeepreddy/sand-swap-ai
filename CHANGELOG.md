@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added Agent Orchestration backend module under `backend/agent_orchestration` with workflow graph domain models, graph validation, SQLite workflow/run/version persistence, execution engine (agent/condition/parallel/loop/human-approval nodes), scoped orchestration API endpoints under `/api/workflows`, DI registration, and regression API tests in `backend/tests/test_workflow_orchestration_api.py`.
+- Added Workflow Orchestration frontend surfaces with new routes and navigation for Workflows, Workflow Builder, Workflow Runs, Workflow History, and Execution Monitor; added workflow API client integration and frontend regression coverage in `frontend/src/pages/WorkflowsPage.test.tsx`.
 - Hardened JWT token secret handling in `TokenService` by normalizing short secrets to a deterministic strong signing key, preserving verification compatibility for previously issued short-secret tokens, and adding regression tests in `backend/tests/test_token_service.py`.
 - Refactored chat memory architecture so persistent user memories are part of the in-request pipeline: context retrieval now combines high-priority long-term facts with semantically relevant user memories across conversations, prompt sections now inject known user facts before conversation history and knowledge context, and memory extraction/persistence runs synchronously after each response to prevent cross-conversation race conditions.
 - Added persistent-memory regression coverage for cross-conversation recall (name, occupation, language preference), restart durability, and memory independence from conversation deletion in `backend/tests/test_chat_persistent_memory.py`.

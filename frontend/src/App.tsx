@@ -8,6 +8,11 @@ import { KnowledgeSourcesPage } from "./pages/KnowledgeSourcesPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { RetrievalInspectorPage } from "./pages/RetrievalInspectorPage";
 import { UploadsPage } from "./pages/UploadsPage";
+import { WorkflowBuilderPage } from "./pages/WorkflowBuilderPage";
+import { WorkflowHistoryPage } from "./pages/WorkflowHistoryPage";
+import { WorkflowMonitorPage } from "./pages/WorkflowMonitorPage";
+import { WorkflowRunsPage } from "./pages/WorkflowRunsPage";
+import { WorkflowsPage } from "./pages/WorkflowsPage";
 import { useAuth } from "./state/useAuth";
 import { useChat } from "./state/useChat";
 import { useHealth } from "./state/useHealth";
@@ -81,6 +86,12 @@ const App = () => {
                     element={<KnowledgeSourcesPage projectId={auth.activeProjectId ?? "default"} />}
                 />
                 <Route path="inspector" element={<RetrievalInspectorPage ownerId={workspaceScopeId} />} />
+                <Route path="workflows" element={<WorkflowsPage />} />
+                <Route path="workflows/builder" element={<WorkflowBuilderPage />} />
+                <Route path="workflows/runs" element={<WorkflowRunsPage />} />
+                <Route path="workflows/history" element={<WorkflowHistoryPage />} />
+                <Route path="workflows/monitor" element={<WorkflowMonitorPage />} />
+                <Route path="workflows/monitor/:runId" element={<WorkflowMonitorPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/chat" replace />} />
         </Routes>
