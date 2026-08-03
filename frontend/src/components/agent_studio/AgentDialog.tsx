@@ -51,7 +51,7 @@ export const AgentDialog = ({
         setName(agent?.name ?? "");
         setDescription(agent?.description ?? "");
         setRole(agent?.role ?? "");
-        setObjective(agent?.objective ?? "");
+        setObjective(agent?.objective ?? agent?.goal ?? "");
         setSystemPrompt(agent?.system_prompt ?? "");
         setEnabled(agent?.enabled ?? true);
         setShortTermEnabled(agent?.short_term_enabled ?? true);

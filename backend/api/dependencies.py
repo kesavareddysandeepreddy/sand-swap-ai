@@ -514,9 +514,14 @@ def register_runtime_dependencies(container: Container | None = None) -> Contain
         repository=knowledge_source_repository,
         connector_registry=connector_registry,
     )
-    agent_studio_repository = SQLiteAgentRepository(db_path=_get_agent_studio_db_path())
-    agent_studio_service = AgentStudioService(repository=agent_studio_repository)
     ollama_client = OllamaClient(model=default_model)
+    agent_studio_repository = SQLiteAgentRepository(db_path=_get_agent_studio_db_path())
+    agent_studio_service = AgentStudioService(
+        repository=agent_studio_repository,
+        llm_client=ollama_client,
+        memory_manager=memory_manager,
+        document_retrieval_service=document_retrieval_service,
+    )
     multimodal_supported_types = config_manager.get("multimodal.supported_types", [])
     if not isinstance(multimodal_supported_types, list):
         multimodal_supported_types = []
