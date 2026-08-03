@@ -6,9 +6,31 @@ import { describe, expect, it, vi } from "vitest";
 import { AgentStudioPage } from "./AgentStudioPage";
 
 const useAgentsMock = vi.fn();
+const agentsApiMock = vi.hoisted(() => ({
+    getDashboard: vi.fn().mockResolvedValue({
+        agent_id: "agent-1",
+        status: "ready",
+        last_run_at: "2026-01-01T00:00:00Z",
+        success_rate: 100,
+        average_runtime_ms: 120.5,
+        memory_usage: "1 mode",
+        knowledge_source_count: 2,
+        connected_agent_count: 1,
+        total_versions: 3,
+    }),
+    listVersions: vi.fn().mockResolvedValue([]),
+    listTestRuns: vi.fn().mockResolvedValue([]),
+    runTestPrompt: vi.fn(),
+    compareVersions: vi.fn(),
+    restoreVersion: vi.fn(),
+}));
 
 vi.mock("../state/useAgents", () => ({
     useAgents: () => useAgentsMock(),
+}));
+
+vi.mock("../api/agents", () => ({
+    agentsApi: agentsApiMock,
 }));
 
 const auth = {
@@ -54,20 +76,42 @@ describe("AgentStudioPage", () => {
                     id: "agent-1",
                     name: "Planner",
                     description: "Plans work",
-                    role: "Planner",
-                    objective: "Plan the work",
+                    instructions: "Stay precise.",
                     system_prompt: "Be concise.",
+                    role: "Planner",
+                    goal: "Plan the work",
+                    expected_output: "A practical execution plan.",
+                    temperature: 0.2,
+                    model: "",
                     enabled: true,
+                    color: "#2563eb",
+                    icon: "sparkles",
+                    capabilities: ["research", "planning"],
+                    agent_memory_enabled: true,
                     short_term_enabled: true,
                     long_term_enabled: true,
+                    long_term_memory_enabled: true,
+                    conversation_memory_enabled: true,
+                    memory_importance: 0.5,
+                    memory_scope: "project",
                     project_memory_enabled: true,
+                    knowledge_source_ids: [],
+                    document_library_ids: [],
+                    github_repositories: [],
+                    sharepoint_sites: [],
+                    uploaded_document_ids: [],
+                    project_knowledge_enabled: true,
                     tools_allowed: ["search"],
+                    tool_permissions: { search: true },
                     connectors_allowed: ["GitHub"],
+                    execution_mode: "sequential",
                     approval_required: false,
                     max_iterations: 3,
                     timeout: 45,
+                    retry_count: 0,
                     retry_policy: {},
                     tags: ["ops"],
+                    connected_agent_ids: [],
                     owner_id: "user-1",
                     workspace_id: "ws-1",
                     project_id: "pr-1",
@@ -96,7 +140,6 @@ describe("AgentStudioPage", () => {
         );
 
         expect(screen.getByRole("heading", { name: "Planner" })).toBeInTheDocument();
-        expect(screen.getByRole("heading", { name: "Planner" })).toBeInTheDocument();
 
         await user.click(screen.getAllByRole("button", { name: "Disable" })[0]);
         expect(onDisable).toHaveBeenCalledWith("agent-1");
@@ -104,7 +147,7 @@ describe("AgentStudioPage", () => {
         await user.click(screen.getAllByRole("button", { name: "Delete" })[0]);
         expect(onDelete).toHaveBeenCalledWith("agent-1");
 
-        await user.click(screen.getByRole("button", { name: "Create" }));
+        await user.click(screen.getByRole("button", { name: "New Agent" }));
         expect(screen.getByRole("dialog", { name: "Create Agent" })).toBeInTheDocument();
 
         confirmSpy.mockRestore();

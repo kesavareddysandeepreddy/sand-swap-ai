@@ -225,63 +225,200 @@ export interface AgentRecord {
     id: string;
     name: string;
     description: string;
-    role: string;
-    objective: string;
+    instructions: string;
     system_prompt: string;
+    role: string;
+    goal: string;
+    expected_output: string;
+    temperature: number;
+    model: string;
     enabled: boolean;
-    short_term_enabled: boolean;
-    long_term_enabled: boolean;
+    color: string;
+    icon: string;
+    capabilities: string[];
+    agent_memory_enabled: boolean;
     project_memory_enabled: boolean;
+    long_term_memory_enabled: boolean;
+    conversation_memory_enabled: boolean;
+    memory_importance: number;
+    memory_scope: string;
+    knowledge_source_ids: string[];
+    document_library_ids: string[];
+    github_repositories: string[];
+    sharepoint_sites: string[];
+    uploaded_document_ids: string[];
+    project_knowledge_enabled: boolean;
     tools_allowed: string[];
+    tool_permissions: Record<string, boolean>;
     connectors_allowed: string[];
+    execution_mode: "sequential" | "parallel";
     approval_required: boolean;
     max_iterations: number;
     timeout: number;
+    retry_count: number;
     retry_policy: Record<string, unknown>;
     tags: string[];
+    connected_agent_ids: string[];
     owner_id: string;
     workspace_id: string;
     project_id: string;
     created_at: string;
     updated_at: string;
+    objective?: string;
+    short_term_enabled?: boolean;
+    long_term_enabled?: boolean;
 }
 
 export interface AgentCreateRequest {
     name: string;
     description?: string;
+    instructions?: string;
     role: string;
-    objective: string;
+    objective?: string;
     system_prompt: string;
+    goal?: string;
+    expected_output?: string;
+    temperature?: number;
+    model?: string;
     enabled?: boolean;
     short_term_enabled?: boolean;
     long_term_enabled?: boolean;
+    color?: string;
+    icon?: string;
+    capabilities?: string[];
+    agent_memory_enabled?: boolean;
     project_memory_enabled?: boolean;
+    long_term_memory_enabled?: boolean;
+    conversation_memory_enabled?: boolean;
+    memory_importance?: number;
+    memory_scope?: string;
+    knowledge_source_ids?: string[];
+    document_library_ids?: string[];
+    github_repositories?: string[];
+    sharepoint_sites?: string[];
+    uploaded_document_ids?: string[];
+    project_knowledge_enabled?: boolean;
     tools_allowed?: string[];
+    tool_permissions?: Record<string, boolean>;
     connectors_allowed?: string[];
+    execution_mode?: "sequential" | "parallel";
     approval_required?: boolean;
     max_iterations?: number;
     timeout?: number;
+    retry_count?: number;
     retry_policy?: Record<string, unknown>;
     tags?: string[];
+    connected_agent_ids?: string[];
 }
 
 export interface AgentUpdateRequest {
     name?: string;
     description?: string | null;
+    instructions?: string | null;
     role?: string;
-    objective?: string;
+    objective?: string | null;
     system_prompt?: string;
+    goal?: string | null;
+    expected_output?: string | null;
+    temperature?: number;
+    model?: string | null;
     enabled?: boolean;
     short_term_enabled?: boolean;
     long_term_enabled?: boolean;
+    color?: string | null;
+    icon?: string | null;
+    capabilities?: string[];
+    agent_memory_enabled?: boolean;
     project_memory_enabled?: boolean;
+    long_term_memory_enabled?: boolean;
+    conversation_memory_enabled?: boolean;
+    memory_importance?: number;
+    memory_scope?: string | null;
+    knowledge_source_ids?: string[];
+    document_library_ids?: string[];
+    github_repositories?: string[];
+    sharepoint_sites?: string[];
+    uploaded_document_ids?: string[];
+    project_knowledge_enabled?: boolean;
     tools_allowed?: string[];
+    tool_permissions?: Record<string, boolean>;
     connectors_allowed?: string[];
+    execution_mode?: "sequential" | "parallel";
     approval_required?: boolean;
     max_iterations?: number;
     timeout?: number;
+    retry_count?: number;
     retry_policy?: Record<string, unknown>;
     tags?: string[];
+    connected_agent_ids?: string[];
+}
+
+export interface AgentVersionResponse {
+    id: string;
+    agent_id: string;
+    version_number: number;
+    change_summary: string;
+    snapshot: Record<string, unknown>;
+    created_at: string;
+}
+
+export interface AgentVersionCompareItem {
+    field: string;
+    before: unknown;
+    after: unknown;
+}
+
+export interface AgentVersionCompareResponse {
+    agent_id: string;
+    left_version: number;
+    right_version: number;
+    differences: AgentVersionCompareItem[];
+}
+
+export interface AgentToolCallResponse {
+    tool_name: string;
+    input: Record<string, unknown>;
+    success: boolean;
+    output: Record<string, unknown>;
+    duration_ms: number;
+    error: string | null;
+}
+
+export interface AgentExecutionStepResponse {
+    step_name: string;
+    tool_name: string;
+    output: Record<string, unknown>;
+    duration_ms: number;
+}
+
+export interface AgentTestRequest {
+    prompt: string;
+}
+
+export interface AgentTestRunResponse {
+    id: string;
+    agent_id: string;
+    prompt: string;
+    reasoning: string;
+    tool_calls: AgentToolCallResponse[];
+    execution: AgentExecutionStepResponse[];
+    final_answer: string;
+    success: boolean;
+    error: string | null;
+    timing_ms: number;
+    created_at: string;
+}
+
+export interface AgentDashboardResponse {
+    agent_id: string;
+    status: string;
+    last_run_at: string | null;
+    success_rate: number;
+    average_runtime_ms: number;
+    memory_usage: string;
+    knowledge_source_count: number;
+    connected_agent_count: number;
+    total_versions: number;
 }
 
 export interface CreateKnowledgeSourceRequest {

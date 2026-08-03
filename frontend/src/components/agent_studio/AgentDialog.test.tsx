@@ -53,20 +53,42 @@ describe("AgentDialog", () => {
             id: "agent-1",
             name: "Planner",
             description: "Plans tasks",
-            role: "Planner",
-            objective: "Create execution plans",
+            instructions: "Stay concise and practical.",
             system_prompt: "Always plan first.",
+            role: "Planner",
+            goal: "Create execution plans",
+            expected_output: "A concise execution plan.",
+            temperature: 0.2,
+            model: "",
             enabled: true,
+            color: "#2563eb",
+            icon: "sparkles",
+            capabilities: [],
+            agent_memory_enabled: true,
             short_term_enabled: true,
             long_term_enabled: true,
+            long_term_memory_enabled: true,
+            conversation_memory_enabled: true,
+            memory_importance: 0.5,
+            memory_scope: "project",
             project_memory_enabled: true,
+            knowledge_source_ids: [],
+            document_library_ids: [],
+            github_repositories: [],
+            sharepoint_sites: [],
+            uploaded_document_ids: [],
+            project_knowledge_enabled: true,
             tools_allowed: ["search"],
+            tool_permissions: { search: true },
             connectors_allowed: ["GitHub"],
+            execution_mode: "sequential",
             approval_required: false,
             max_iterations: 3,
             timeout: 45,
+            retry_count: 0,
             retry_policy: { retries: 1 },
             tags: ["ops"],
+            connected_agent_ids: [],
             owner_id: "user-1",
             workspace_id: "ws-1",
             project_id: "pr-1",
@@ -87,7 +109,7 @@ describe("AgentDialog", () => {
 
         expect((screen.getByLabelText("Agent Name") as HTMLInputElement).value).toBe("Planner");
 
-        await user.click(screen.getByLabelText("Enabled"));
+        await user.click(screen.getByRole("checkbox", { name: "Enabled" }));
         await user.click(screen.getByRole("button", { name: "Save" }));
 
         expect(onSubmit).toHaveBeenCalledWith(
