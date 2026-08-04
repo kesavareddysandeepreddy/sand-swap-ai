@@ -335,3 +335,80 @@ class WorkflowDashboardResponse(BaseModel):
     average_token_usage: float
     agent_usage: dict[str, int]
     most_active_workflows: list[dict[str, Any]]
+
+
+class AutonomousMissionRequest(BaseModel):
+    """Request payload to launch an autonomous mission from a natural-language goal."""
+
+    goal: str = Field(..., min_length=3)
+    constraints: list[str] = Field(default_factory=list)
+    context: dict[str, Any] = Field(default_factory=dict)
+    auto_execute: bool = True
+    wait_for_completion: bool = False
+
+
+class AutonomousMissionStatusResponse(BaseModel):
+    """Lightweight mission status payload for polling."""
+
+    mission_id: str
+    status: str
+    run_id: str = ""
+    selected_workflow_id: str = ""
+    updated_at: datetime
+
+
+class AutonomousMissionResponse(BaseModel):
+    """Full autonomous mission payload for mission control."""
+
+    mission_id: str
+    goal: str
+    status: str
+    owner_id: str
+    workspace_id: str
+    project_id: str
+    run_id: str = ""
+    selected_workflow_id: str = ""
+    planner_output: dict[str, Any] = Field(default_factory=dict)
+    capability_scores: list[dict[str, Any]] = Field(default_factory=list)
+    execution_recommendations: list[dict[str, Any]] = Field(default_factory=list)
+    temporary_agents: list[dict[str, Any]] = Field(default_factory=list)
+    mission_timeline: list[dict[str, Any]] = Field(default_factory=list)
+    artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    governance: dict[str, Any] = Field(default_factory=dict)
+    execution_result: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
+class MissionControlDashboardResponse(BaseModel):
+    """Dashboard payload for autonomous mission control."""
+
+    running_missions: int
+    planned_missions: int
+    completed_missions: int
+    failed_missions: int
+    mission_success_rate: float
+    average_runtime_ms: float
+    active_runs: int
+    retries: int
+    recent_failures: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class MissionTemplateRequest(BaseModel):
+    """Request payload for creating or updating an execution template."""
+
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    template: dict[str, Any] = Field(default_factory=dict)
+
+
+class MissionTemplateResponse(BaseModel):
+    """Mission template payload for reusable autonomous execution plans."""
+
+    template_id: str
+    name: str
+    description: str
+    template: dict[str, Any]
+    version: int
+    created_at: datetime
+    updated_at: datetime

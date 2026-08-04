@@ -107,3 +107,48 @@ class WorkflowRepository(ABC):
         project_id: str,
     ) -> dict[str, Any]:
         """Compute dashboard metrics for orchestration workflows."""
+
+    @abstractmethod
+    def create_mission(self, mission: dict[str, Any]) -> dict[str, Any]:
+        """Persist one autonomous mission record."""
+
+    @abstractmethod
+    def update_mission(self, mission: dict[str, Any]) -> dict[str, Any]:
+        """Persist updates for an autonomous mission record."""
+
+    @abstractmethod
+    def get_mission(self, mission_id: str) -> dict[str, Any] | None:
+        """Fetch one mission by identifier."""
+
+    @abstractmethod
+    def list_missions(
+        self,
+        *,
+        owner_id: str,
+        workspace_id: str,
+        project_id: str,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """List recent missions in ownership scope."""
+
+    @abstractmethod
+    def create_mission_template(self, template: dict[str, Any]) -> dict[str, Any]:
+        """Persist one reusable mission template."""
+
+    @abstractmethod
+    def update_mission_template(self, template: dict[str, Any]) -> dict[str, Any]:
+        """Persist updates for one mission template."""
+
+    @abstractmethod
+    def list_mission_templates(
+        self,
+        *,
+        owner_id: str,
+        workspace_id: str,
+        project_id: str,
+    ) -> list[dict[str, Any]]:
+        """List mission templates in ownership scope."""
+
+    @abstractmethod
+    def get_mission_template(self, template_id: str) -> dict[str, Any] | None:
+        """Fetch one mission template by identifier."""

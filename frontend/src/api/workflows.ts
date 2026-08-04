@@ -1,5 +1,11 @@
 import { loadAuthSession } from "../state/authStorage";
 import type {
+    AutonomousMissionRecord,
+    AutonomousMissionRequest,
+    AutonomousMissionStatusRecord,
+    MissionControlDashboard,
+    MissionTemplateRecord,
+    MissionTemplateRequest,
     WorkflowAgentMessagesResponse,
     WorkflowAgentRegistryResponse,
     WorkflowArtifactsResponse,
@@ -249,6 +255,93 @@ export const workflowsApi = {
 
     getDashboard: () =>
         request<WorkflowDashboardResponse>("/api/workflows/dashboard", {
+            method: "GET",
+        }),
+
+    createMission: (payload: AutonomousMissionRequest) =>
+        request<AutonomousMissionRecord>("/api/workflows/missions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        }),
+
+    listMissions: (limit = 50) =>
+        request<AutonomousMissionRecord[]>(`/api/workflows/missions?limit=${limit}`, {
+            method: "GET",
+        }),
+
+    getMission: (missionId: string) =>
+        request<AutonomousMissionRecord>(`/api/workflows/missions/${missionId}`, {
+            method: "GET",
+        }),
+
+    getMissionStatus: (missionId: string) =>
+        request<AutonomousMissionStatusRecord>(
+            `/api/workflows/missions/${missionId}/status`,
+            {
+                method: "GET",
+            }
+        ),
+
+    getMissionPlannerOutput: (missionId: string) =>
+        request<{ mission_id: string; planner_output: Record<string, unknown> }>(
+            `/api/workflows/missions/${missionId}/planner`,
+            {
+                method: "GET",
+            }
+        ),
+
+    getMissionCapabilityScores: (missionId: string) =>
+        request<{ mission_id: string; scores: Array<Record<string, unknown>> }>(
+            `/api/workflows/missions/${missionId}/capability-scores`,
+            {
+                method: "GET",
+            }
+        ),
+
+    getMissionRecommendations: (missionId: string) =>
+        request<{ mission_id: string; recommendations: Array<Record<string, unknown>> }>(
+            `/api/workflows/missions/${missionId}/recommendations`,
+            {
+                method: "GET",
+            }
+        ),
+
+    getMissionTemporaryAgents: (missionId: string) =>
+        request<{ mission_id: string; temporary_agents: Array<Record<string, unknown>> }>(
+            `/api/workflows/missions/${missionId}/temporary-agents`,
+            {
+                method: "GET",
+            }
+        ),
+
+    getMissionDashboard: () =>
+        request<MissionControlDashboard>("/api/workflows/missions/dashboard", {
+            method: "GET",
+        }),
+
+    createMissionTemplate: (payload: MissionTemplateRequest) =>
+        request<MissionTemplateRecord>("/api/workflows/mission-templates", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        }),
+
+    updateMissionTemplate: (templateId: string, payload: MissionTemplateRequest) =>
+        request<MissionTemplateRecord>(`/api/workflows/mission-templates/${templateId}`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        }),
+
+    listMissionTemplates: () =>
+        request<MissionTemplateRecord[]>("/api/workflows/mission-templates", {
             method: "GET",
         }),
 
