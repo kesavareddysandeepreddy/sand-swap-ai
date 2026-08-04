@@ -140,27 +140,153 @@
   gap: 8px;
 }
 
+.workflow-node-row-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
 .workflow-canvas {
   min-height: 360px;
   border: 1px dashed var(--border);
   border-radius: 14px;
   position: relative;
-  overflow: auto;
-  background-image:
-    linear-gradient(to right, rgba(8, 6, 13, 0.06) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(8, 6, 13, 0.06) 1px, transparent 1px);
-  background-size: 24px 24px;
+  overflow: hidden;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(244, 243, 236, 0.74));
 }
 
-.workflow-canvas__node {
-  width: 150px;
+.workflow-canvas--interactive {
+  min-height: 520px;
+}
+
+.workflow-canvas--grid {
+  background-image:
+    linear-gradient(to right, rgba(8, 6, 13, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(8, 6, 13, 0.07) 1px, transparent 1px),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(244, 243, 236, 0.74));
+  background-size: 24px 24px, 24px 24px, 100% 100%;
+}
+
+.workflow-canvas__world {
   position: absolute;
-  border: 1px solid var(--accent-border);
+  inset: 0;
+  width: 5000px;
+  height: 5000px;
+}
+
+.workflow-canvas__edges {
+  position: absolute;
+  inset: 0;
+  color: rgba(8, 6, 13, 0.32);
+}
+
+.workflow-canvas__edge path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  cursor: pointer;
+}
+
+.workflow-canvas__edge text {
+  fill: var(--text-h);
+  font-size: 12px;
+}
+
+.workflow-canvas__edge--selected {
+  color: #2563eb;
+}
+
+.workflow-canvas-node {
+  position: absolute;
+  border: 1px solid rgba(8, 6, 13, 0.16);
   border-radius: 12px;
   padding: 8px;
   background: rgba(255, 255, 255, 0.93);
   display: grid;
   gap: 4px;
+  cursor: grab;
+  box-shadow: rgba(8, 6, 13, 0.08) 0 10px 18px -12px;
+  user-select: none;
+}
+
+.workflow-canvas-node strong {
+  color: var(--text-h);
+}
+
+.workflow-canvas-node span {
+  font-size: 12px;
+}
+
+.workflow-canvas-node--selected {
+  border-color: #2563eb;
+  box-shadow: rgba(37, 99, 235, 0.34) 0 0 0 3px;
+}
+
+.workflow-canvas-node--edge-source {
+  border-color: #f59e0b;
+  box-shadow: rgba(245, 158, 11, 0.25) 0 0 0 3px;
+}
+
+.workflow-canvas__marquee {
+  position: absolute;
+  border: 1px dashed #2563eb;
+  background: rgba(37, 99, 235, 0.1);
+  pointer-events: none;
+}
+
+.workflow-card--canvas {
+  position: relative;
+}
+
+.workflow-minimap {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.workflow-minimap__bg {
+  fill: rgba(244, 243, 236, 0.7);
+}
+
+.workflow-minimap__node {
+  fill: rgba(8, 6, 13, 0.28);
+}
+
+.workflow-minimap__node--selected {
+  fill: #2563eb;
+}
+
+.workflow-minimap__viewport {
+  fill: rgba(37, 99, 235, 0.14);
+  stroke: #2563eb;
+  stroke-width: 1.2;
+}
+
+.workflow-execution-events {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(244, 243, 236, 0.56);
+  padding: 10px;
+}
+
+.workflow-execution-events pre {
+  margin: 0 0 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(8, 6, 13, 0.08);
+  overflow: auto;
+}
+
+.workflow-card--inspector h3,
+.workflow-card--execution h3 {
+  margin: 10px 0 8px;
 }
 
 .workflow-run-list li {

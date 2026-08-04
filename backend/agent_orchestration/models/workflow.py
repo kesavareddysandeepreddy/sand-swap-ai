@@ -141,6 +141,8 @@ class WorkflowExecutionRequest(BaseModel):
     """Execution request for one workflow run."""
 
     input_payload: dict[str, Any] = Field(default_factory=dict)
+    conversation_id: str = ""
+    shared_variables: dict[str, Any] = Field(default_factory=dict)
     wait_for_completion: bool = False
 
 
@@ -149,6 +151,13 @@ class WorkflowRunActionRequest(BaseModel):
 
     action: str = Field(..., min_length=1)
     edited_input: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowRetryRequest(BaseModel):
+    """Retry request for supervisor-controlled recovery."""
+
+    policy: str = "immediate"
+    task_id: str = ""
 
 
 class WorkflowExecutionResponse(BaseModel):
@@ -208,25 +217,53 @@ class NodeExecutionRecordModel(BaseModel):
 class AgentMessageModel(BaseModel):
     """Inter-agent communication record for execution monitor."""
 
+    message_id: str
     sender: str
     receiver: str
     timestamp: datetime
+    conversation_id: str
+    workflow_id: str
+    execution_id: str
+    sender_agent: str
+    receiver_agent: str
+    task_id: str
+    priority: str
+    message_type: str
+    thought: str
+    reasoning_summary: str
     payload: dict[str, Any]
     reasoning: str
+    attachments: list[dict[str, Any]]
     artifacts: list[dict[str, Any]]
     tool_outputs: list[dict[str, Any]]
+    memory_references: list[dict[str, Any]]
+    confidence: float
     metadata: dict[str, Any]
 
     @classmethod
     def from_domain(cls, message: AgentMessage) -> "AgentMessageModel":
         return cls(
+            message_id=message.message_id,
             sender=message.sender,
             receiver=message.receiver,
             timestamp=message.timestamp,
+            conversation_id=message.conversation_id,
+            workflow_id=message.workflow_id,
+            execution_id=message.execution_id,
+            sender_agent=message.sender_agent,
+            receiver_agent=message.receiver_agent,
+            task_id=message.task_id,
+            priority=message.priority,
+            message_type=message.message_type,
+            thought=message.thought,
+            reasoning_summary=message.reasoning_summary,
             payload=dict(message.payload),
             reasoning=message.reasoning,
+            attachments=[dict(item) for item in message.attachments],
             artifacts=[dict(item) for item in message.artifacts],
             tool_outputs=[dict(item) for item in message.tool_outputs],
+            memory_references=[dict(item) for item in message.memory_references],
+            confidence=message.confidence,
             metadata=dict(message.metadata),
         )
 

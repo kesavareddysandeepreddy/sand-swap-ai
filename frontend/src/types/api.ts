@@ -502,7 +502,22 @@ export interface WorkflowValidationResponse {
 
 export interface WorkflowExecutionRequest {
     input_payload: Record<string, unknown>;
+    conversation_id?: string;
+    shared_variables?: Record<string, unknown>;
     wait_for_completion: boolean;
+}
+
+export interface WorkflowVersionCompareItem {
+    field: string;
+    before: unknown;
+    after: unknown;
+}
+
+export interface WorkflowVersionCompareResponse {
+    workflow_id: string;
+    left_version: number;
+    right_version: number;
+    differences: WorkflowVersionCompareItem[];
 }
 
 export interface WorkflowExecutionResponse {
@@ -528,14 +543,81 @@ export interface WorkflowNodeExecutionRecord {
 }
 
 export interface WorkflowAgentMessage {
+    message_id: string;
     sender: string;
     receiver: string;
     timestamp: string;
+    conversation_id: string;
+    workflow_id: string;
+    execution_id: string;
+    sender_agent: string;
+    receiver_agent: string;
+    task_id: string;
+    priority: string;
+    message_type: string;
+    thought: string;
+    reasoning_summary: string;
     payload: Record<string, unknown>;
     reasoning: string;
+    attachments: Array<Record<string, unknown>>;
     artifacts: Array<Record<string, unknown>>;
     tool_outputs: Array<Record<string, unknown>>;
+    memory_references: Array<Record<string, unknown>>;
+    confidence: number;
     metadata: Record<string, unknown>;
+}
+
+export interface WorkflowRetryRequest {
+    policy: string;
+    task_id: string;
+}
+
+export interface WorkflowAgentRegistryResponse {
+    run_id: string;
+    registry: Record<string, unknown>;
+}
+
+export interface WorkflowAgentMessagesResponse {
+    run_id: string;
+    messages: Array<Record<string, unknown>>;
+}
+
+export interface WorkflowTimelineResponse {
+    run_id: string;
+    timeline: Array<Record<string, unknown>>;
+}
+
+export interface WorkflowArtifactsResponse {
+    run_id: string;
+    artifacts: Array<Record<string, unknown>>;
+}
+
+export interface WorkflowSupervisorResponse {
+    run_id: string;
+    supervisor: Record<string, unknown>;
+}
+
+export interface WorkflowDebuggerResponse {
+    run: WorkflowRunRecord | null;
+    workflow: WorkflowRecord | null;
+    nodes: Record<string, Record<string, unknown>>;
+    timeline: Array<Record<string, unknown>>;
+    messages: Array<Record<string, unknown>>;
+}
+
+export interface WorkflowNodeDebuggerResponse {
+    run_id: string;
+    node_id: string;
+    record: WorkflowNodeExecutionRecord;
+    logs: Array<Record<string, unknown>>;
+}
+
+export interface WorkflowStreamEvent {
+    run_id: string;
+    status: string;
+    event: Record<string, unknown>;
+    current_node_id: string;
+    pending_node_id: string;
 }
 
 export interface WorkflowRunRecord {
