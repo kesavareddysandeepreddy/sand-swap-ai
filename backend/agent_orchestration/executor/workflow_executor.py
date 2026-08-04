@@ -26,6 +26,8 @@ from backend.agent_orchestration.events import (
     WORKFLOW_NODE_COMPLETED,
     WORKFLOW_NODE_FAILED,
     WORKFLOW_NODE_STARTED,
+    WORKFLOW_NODE_WAITING,
+    WORKFLOW_PAUSED,
 )
 
 AgentEvaluator = Callable[[WorkflowNode, dict[str, Any]], dict[str, Any]]
@@ -45,6 +47,7 @@ class WorkflowExecutionEngine:
         run: WorkflowRun,
         agent_evaluator: AgentEvaluator,
         should_cancel: Callable[[str], bool],
+        should_pause: Callable[[str], bool] | None = None,
         start_node_ids: list[str] | None = None,
     ) -> WorkflowRun:
         """Execute a workflow and return updated run state."""
@@ -84,6 +87,18 @@ class WorkflowExecutionEngine:
                 run.status = WorkflowRunStatus.CANCELED
                 run.error = "Execution canceled"
                 return self._finalize_run(run, started)
+
+            if should_pause is not None and should_pause(run.id):
+                run.status = WorkflowRunStatus.PAUSED
+                run.logs.append(
+                    self._log_event(
+                        WORKFLOW_PAUSED,
+                        "Workflow execution paused",
+                        {"run_id": run.id, "current_node_id": run.current_node_id},
+                    )
+                )
+                run.touch()
+                return self._finalize_run(run, started, completed=False)
 
             batch = list(dict.fromkeys(pending_nodes))
             pending_nodes = []
@@ -253,12 +268,24 @@ class WorkflowExecutionEngine:
                         "node_id": node.id,
                         "node_type": node.node_type,
                         "duration_ms": duration_ms,
+                        "progress_percent": self._progress_percent(run),
                     },
                 )
             )
             if node.node_type == "Human Approval":
                 auto_approve = bool(node.config.get("auto_approve", False))
                 if not auto_approve:
+                    run.logs.append(
+                        self._log_event(
+                            WORKFLOW_NODE_WAITING,
+                            f"Node waiting for approval: {node.name}",
+                            {
+                                "node_id": node.id,
+                                "node_type": node.node_type,
+                                "progress_percent": self._progress_percent(run),
+                            },
+                        )
+                    )
                     return {"status": "pause", "node_id": node.id, "next_nodes": []}
             if node.node_type == "End":
                 return {"status": "ok", "node_id": node.id, "next_nodes": []}
@@ -296,7 +323,7 @@ class WorkflowExecutionEngine:
     ) -> list[str]:
         outgoing = edge_map.get(node.id, [])
 
-        if node.node_type == "Condition":
+        if node.node_type in {"Condition", "Decision"}:
             field_name = str(node.config.get("field", ""))
             operator = str(node.config.get("operator", "equals")).lower()
             expected_value = node.config.get("value")
@@ -311,7 +338,7 @@ class WorkflowExecutionEngine:
         if node.node_type == "Parallel Split":
             return [edge.target_node_id for edge in outgoing]
 
-        if node.node_type == "Merge":
+        if node.node_type in {"Merge", "Parallel Join"}:
             merge_counters[node.id] += 1
             required = len(incoming.get(node.id, []))
             if merge_counters[node.id] < max(1, required):
@@ -350,6 +377,47 @@ class WorkflowExecutionEngine:
             run.context.update(
                 {"last_agent_output": agent_output, "last_node_id": node.id}
             )
+            runtime_context = run.context.setdefault("multi_agent_runtime", {})
+            if isinstance(runtime_context, dict):
+                if isinstance(agent_output.get("runtime_registry"), dict):
+                    runtime_context["registry"] = dict(agent_output["runtime_registry"])
+                if isinstance(agent_output.get("runtime_messages"), list):
+                    runtime_context["messages"] = [
+                        dict(item)
+                        for item in agent_output.get("runtime_messages", [])
+                        if isinstance(item, dict)
+                    ]
+                if isinstance(agent_output.get("runtime_timeline"), list):
+                    runtime_context["timeline"] = [
+                        dict(item)
+                        for item in agent_output.get("runtime_timeline", [])
+                        if isinstance(item, dict)
+                    ]
+                if isinstance(agent_output.get("runtime_artifacts"), list):
+                    runtime_context["artifacts"] = [
+                        dict(item)
+                        for item in agent_output.get("runtime_artifacts", [])
+                        if isinstance(item, dict)
+                    ]
+                if isinstance(agent_output.get("runtime_tasks"), list):
+                    runtime_context["tasks"] = [
+                        dict(item)
+                        for item in agent_output.get("runtime_tasks", [])
+                        if isinstance(item, dict)
+                    ]
+                if isinstance(agent_output.get("runtime_metrics"), dict):
+                    runtime_context["metrics"] = dict(agent_output["runtime_metrics"])
+                if isinstance(agent_output.get("runtime_supervisor"), dict):
+                    runtime_context["supervisor"] = dict(
+                        agent_output["runtime_supervisor"]
+                    )
+                if isinstance(agent_output.get("runtime_retries"), list):
+                    runtime_context["retries"] = [
+                        dict(item)
+                        for item in agent_output.get("runtime_retries", [])
+                        if isinstance(item, dict)
+                    ]
+
             run.artifacts.append(
                 {
                     "node_id": node.id,
@@ -357,19 +425,129 @@ class WorkflowExecutionEngine:
                     "output": dict(agent_output),
                 }
             )
-            run.messages.append(
-                AgentMessage(
-                    sender=str(run.context.get("last_sender", "workflow")),
-                    receiver=node.agent_id or node.name,
-                    timestamp=datetime.now(UTC),
-                    payload=dict(agent_output),
-                    reasoning=str(agent_output.get("reasoning", "")),
-                    artifacts=[{"node_id": node.id, "output": dict(agent_output)}],
-                    tool_outputs=list(agent_output.get("tool_outputs", [])),
-                    metadata={"node_type": node.node_type, "node_name": node.name},
+            runtime_messages = agent_output.get("runtime_messages", [])
+            if isinstance(runtime_messages, list) and runtime_messages:
+                for item in runtime_messages:
+                    if not isinstance(item, dict):
+                        continue
+                    timestamp_raw = str(item.get("timestamp", ""))
+                    try:
+                        timestamp = datetime.fromisoformat(timestamp_raw)
+                    except ValueError:
+                        timestamp = datetime.now(UTC)
+                    run.messages.append(
+                        AgentMessage(
+                            message_id=str(item.get("message_id", ""))
+                            or str(datetime.now(UTC).timestamp()),
+                            sender=str(item.get("sender_agent", ""))
+                            or str(item.get("sender", "workflow")),
+                            receiver=str(item.get("receiver_agent", ""))
+                            or str(item.get("receiver", node.agent_id or node.name)),
+                            sender_agent=str(item.get("sender_agent", "")),
+                            receiver_agent=str(item.get("receiver_agent", "")),
+                            task_id=str(item.get("task_id", "")),
+                            priority=str(item.get("priority", "normal")),
+                            message_type=str(item.get("message_type", "StatusUpdate")),
+                            timestamp=timestamp,
+                            conversation_id=str(
+                                item.get(
+                                    "conversation_id",
+                                    run.context.get("conversation_id", ""),
+                                )
+                            ),
+                            workflow_id=str(item.get("workflow_id", run.workflow_id)),
+                            execution_id=str(item.get("execution_id", run.id)),
+                            reasoning_summary=str(item.get("reasoning_summary", "")),
+                            payload=dict(item.get("payload", {})),
+                            confidence=float(item.get("confidence", 0.0) or 0.0),
+                            attachments=[
+                                dict(attachment)
+                                for attachment in item.get("attachments", [])
+                                if isinstance(attachment, dict)
+                            ],
+                            metadata={
+                                "node_type": node.node_type,
+                                "node_name": node.name,
+                            },
+                        )
+                    )
+            else:
+                run.messages.append(
+                    AgentMessage(
+                        sender=str(run.context.get("last_sender", "workflow")),
+                        receiver=node.agent_id or node.name,
+                        sender_agent=str(run.context.get("last_sender", "workflow")),
+                        receiver_agent=node.agent_id or node.name,
+                        timestamp=datetime.now(UTC),
+                        conversation_id=str(run.context.get("conversation_id", "")),
+                        workflow_id=run.workflow_id,
+                        execution_id=run.id,
+                        thought=str(agent_output.get("thought", "")),
+                        reasoning_summary=str(
+                            agent_output.get("reasoning_summary", "")
+                            or agent_output.get("reasoning", "")
+                        ),
+                        payload=dict(agent_output),
+                        reasoning=str(agent_output.get("reasoning", "")),
+                        artifacts=[{"node_id": node.id, "output": dict(agent_output)}],
+                        tool_outputs=list(agent_output.get("tool_outputs", [])),
+                        memory_references=list(
+                            agent_output.get("memory_references", [])
+                        ),
+                        confidence=float(agent_output.get("confidence", 0.0) or 0.0),
+                        metadata={"node_type": node.node_type, "node_name": node.name},
+                    )
                 )
-            )
+
+            runtime_timeline = runtime_context.get("timeline", [])
+            if isinstance(runtime_timeline, list):
+                for item in runtime_timeline:
+                    if not isinstance(item, dict):
+                        continue
+                    run.logs.append(
+                        self._log_event(
+                            "WORKFLOW_AGENT_TIMELINE",
+                            str(item.get("action", "agent-action")),
+                            {
+                                "agent": str(item.get("agent", "")),
+                                "node_id": node.id,
+                                "duration_ms": float(
+                                    item.get("duration_ms", 0.0) or 0.0
+                                ),
+                                "details": dict(item),
+                            },
+                        )
+                    )
+
+            runtime_artifacts = runtime_context.get("artifacts", [])
+            if isinstance(runtime_artifacts, list):
+                for artifact in runtime_artifacts:
+                    if isinstance(artifact, dict):
+                        run.artifacts.append(dict(artifact))
+
             run.context["last_sender"] = node.agent_id or node.name
+            return [edge.target_node_id for edge in outgoing]
+
+        if node.node_type == "Delay":
+            delay_ms = int(node.config.get("delay_ms", 0) or 0)
+            run.context["last_delay_ms"] = delay_ms
+            return [edge.target_node_id for edge in outgoing]
+
+        if node.node_type in {
+            "Memory",
+            "Knowledge Search",
+            "Python Tool",
+            "REST Tool",
+            "Filesystem Tool",
+        }:
+            integration_payload = {
+                "node_id": node.id,
+                "node_type": node.node_type,
+                "config": dict(node.config),
+                "status": "completed",
+            }
+            run.context[f"{node.id}_result"] = integration_payload
+            run.artifacts.append(integration_payload)
             return [edge.target_node_id for edge in outgoing]
 
         if node.node_type == "Human Approval":
@@ -475,3 +653,13 @@ class WorkflowExecutionEngine:
             )
         run.touch()
         return run
+
+    @staticmethod
+    def _progress_percent(run: WorkflowRun) -> float:
+        if not run.node_records:
+            return 0.0
+        completed = sum(
+            1 for record in run.node_records if record.status == "completed"
+        )
+        total = len(run.node_records)
+        return round((completed / max(1, total)) * 100.0, 2)

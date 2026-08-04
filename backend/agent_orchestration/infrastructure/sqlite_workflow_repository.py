@@ -509,13 +509,27 @@ class SQLiteWorkflowRepository(WorkflowRepository):
     @staticmethod
     def _serialize_message(message: AgentMessage) -> dict[str, Any]:
         return {
+            "message_id": message.message_id,
             "sender": message.sender,
             "receiver": message.receiver,
             "timestamp": message.timestamp.isoformat(),
+            "conversation_id": message.conversation_id,
+            "workflow_id": message.workflow_id,
+            "execution_id": message.execution_id,
+            "sender_agent": message.sender_agent,
+            "receiver_agent": message.receiver_agent,
+            "task_id": message.task_id,
+            "priority": message.priority,
+            "message_type": message.message_type,
+            "thought": message.thought,
+            "reasoning_summary": message.reasoning_summary,
             "payload": dict(message.payload),
             "reasoning": message.reasoning,
+            "attachments": [dict(item) for item in message.attachments],
             "artifacts": [dict(item) for item in message.artifacts],
             "tool_outputs": [dict(item) for item in message.tool_outputs],
+            "memory_references": [dict(item) for item in message.memory_references],
+            "confidence": message.confidence,
             "metadata": dict(message.metadata),
         }
 
@@ -549,11 +563,27 @@ class SQLiteWorkflowRepository(WorkflowRepository):
         ]
         messages = [
             AgentMessage(
+                message_id=str(item.get("message_id", "")),
                 sender=str(item.get("sender", "")),
                 receiver=str(item.get("receiver", "")),
                 timestamp=datetime.fromisoformat(str(item.get("timestamp"))),
+                conversation_id=str(item.get("conversation_id", "")),
+                workflow_id=str(item.get("workflow_id", "")),
+                execution_id=str(item.get("execution_id", "")),
+                sender_agent=str(item.get("sender_agent", "")),
+                receiver_agent=str(item.get("receiver_agent", "")),
+                task_id=str(item.get("task_id", "")),
+                priority=str(item.get("priority", "normal")),
+                message_type=str(item.get("message_type", "StatusUpdate")),
+                thought=str(item.get("thought", "")),
+                reasoning_summary=str(item.get("reasoning_summary", "")),
                 payload=dict(item.get("payload", {})),
                 reasoning=str(item.get("reasoning", "")),
+                attachments=[
+                    dict(attachment)
+                    for attachment in item.get("attachments", [])
+                    if isinstance(attachment, dict)
+                ],
                 artifacts=[
                     dict(artifact)
                     for artifact in item.get("artifacts", [])
@@ -564,6 +594,12 @@ class SQLiteWorkflowRepository(WorkflowRepository):
                     for tool_output in item.get("tool_outputs", [])
                     if isinstance(tool_output, dict)
                 ],
+                memory_references=[
+                    dict(reference)
+                    for reference in item.get("memory_references", [])
+                    if isinstance(reference, dict)
+                ],
+                confidence=float(item.get("confidence", 0.0) or 0.0),
                 metadata=dict(item.get("metadata", {})),
             )
             for item in messages_raw

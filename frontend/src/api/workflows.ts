@@ -1,14 +1,23 @@
 import { loadAuthSession } from "../state/authStorage";
 import type {
+    WorkflowAgentMessagesResponse,
+    WorkflowAgentRegistryResponse,
+    WorkflowArtifactsResponse,
     WorkflowCreateRequest,
     WorkflowDashboardResponse,
+    WorkflowDebuggerResponse,
     WorkflowExecutionRequest,
     WorkflowExecutionResponse,
+    WorkflowNodeDebuggerResponse,
     WorkflowRecord,
+    WorkflowRetryRequest,
     WorkflowRunActionRequest,
     WorkflowRunRecord,
+    WorkflowSupervisorResponse,
+    WorkflowTimelineResponse,
     WorkflowUpdateRequest,
     WorkflowValidationResponse,
+    WorkflowVersionCompareResponse,
     WorkflowVersionResponse,
 } from "../types/api";
 import { ApiError } from "./client";
@@ -119,6 +128,22 @@ export const workflowsApi = {
             method: "GET",
         }),
 
+    compareVersions: (workflowId: string, leftVersion: number, rightVersion: number) =>
+        request<WorkflowVersionCompareResponse>(
+            `/api/workflows/${workflowId}/versions/compare?left_version=${leftVersion}&right_version=${rightVersion}`,
+            {
+                method: "GET",
+            }
+        ),
+
+    restoreVersion: (workflowId: string, versionId: string) =>
+        request<WorkflowRecord>(
+            `/api/workflows/${workflowId}/versions/${versionId}/restore`,
+            {
+                method: "POST",
+            }
+        ),
+
     execute: (workflowId: string, payload: WorkflowExecutionRequest) =>
         request<WorkflowExecutionResponse>(`/api/workflows/${workflowId}/execute`, {
             method: "POST",
@@ -143,8 +168,64 @@ export const workflowsApi = {
             method: "GET",
         }),
 
+    getRunState: (runId: string) =>
+        request<WorkflowRunRecord>(`/api/workflows/runs/${runId}/state`, {
+            method: "GET",
+        }),
+
+    getRunDebugger: (runId: string) =>
+        request<WorkflowDebuggerResponse>(`/api/workflows/runs/${runId}/debugger`, {
+            method: "GET",
+        }),
+
+    getRunNodeDebugger: (runId: string, nodeId: string) =>
+        request<WorkflowNodeDebuggerResponse>(
+            `/api/workflows/runs/${runId}/nodes/${nodeId}`,
+            {
+                method: "GET",
+            }
+        ),
+
+    getRunAgentRegistry: (runId: string) =>
+        request<WorkflowAgentRegistryResponse>(
+            `/api/workflows/runs/${runId}/agent-registry`,
+            {
+                method: "GET",
+            }
+        ),
+
+    getRunMessages: (runId: string) =>
+        request<WorkflowAgentMessagesResponse>(`/api/workflows/runs/${runId}/messages`, {
+            method: "GET",
+        }),
+
+    getRunTimeline: (runId: string) =>
+        request<WorkflowTimelineResponse>(`/api/workflows/runs/${runId}/timeline`, {
+            method: "GET",
+        }),
+
+    getRunArtifacts: (runId: string) =>
+        request<WorkflowArtifactsResponse>(`/api/workflows/runs/${runId}/artifacts`, {
+            method: "GET",
+        }),
+
+    getRunSupervisor: (runId: string) =>
+        request<WorkflowSupervisorResponse>(`/api/workflows/runs/${runId}/supervisor`, {
+            method: "GET",
+        }),
+
     cancelRun: (runId: string) =>
         request<WorkflowRunRecord>(`/api/workflows/runs/${runId}/cancel`, {
+            method: "POST",
+        }),
+
+    pauseRun: (runId: string) =>
+        request<WorkflowRunRecord>(`/api/workflows/runs/${runId}/pause`, {
+            method: "POST",
+        }),
+
+    resumeRun: (runId: string) =>
+        request<WorkflowRunRecord>(`/api/workflows/runs/${runId}/resume`, {
             method: "POST",
         }),
 
@@ -157,8 +238,19 @@ export const workflowsApi = {
             body: JSON.stringify(payload),
         }),
 
+    retryRun: (runId: string, payload: WorkflowRetryRequest) =>
+        request<WorkflowRunRecord>(`/api/workflows/runs/${runId}/retry`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        }),
+
     getDashboard: () =>
         request<WorkflowDashboardResponse>("/api/workflows/dashboard", {
             method: "GET",
         }),
+
+    streamRunEventsUrl: (runId: string) => `${getBaseUrl()}/api/workflows/runs/${runId}/events`,
 };

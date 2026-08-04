@@ -68,13 +68,17 @@ class WorkflowValidator:
 
         for node in workflow.nodes:
             out_count = len(adjacency.get(node.id, []))
-            if node.node_type == "Condition" and out_count < 2:
+            if node.node_type in {"Condition", "Decision"} and out_count < 2:
                 errors.append(
-                    f"Condition node {node.id} requires at least 2 outgoing edges."
+                    f"Decision node {node.id} requires at least 2 outgoing edges."
                 )
             if node.node_type == "Parallel Split" and out_count < 2:
                 errors.append(
                     f"Parallel Split node {node.id} requires at least 2 outgoing edges."
+                )
+            if node.node_type == "Parallel Join" and out_count > 1:
+                errors.append(
+                    f"Parallel Join node {node.id} supports only one outgoing edge."
                 )
             if node.node_type == "Loop" and out_count < 2:
                 errors.append(f"Loop node {node.id} requires loop and exit edges.")
