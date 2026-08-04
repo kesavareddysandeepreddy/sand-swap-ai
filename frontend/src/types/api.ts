@@ -652,6 +652,71 @@ export interface WorkflowDashboardResponse {
     most_active_workflows: Array<Record<string, unknown>>;
 }
 
+export interface AutonomousMissionRequest {
+    goal: string;
+    constraints?: string[];
+    context?: Record<string, unknown>;
+    auto_execute?: boolean;
+    wait_for_completion?: boolean;
+}
+
+export interface AutonomousMissionRecord {
+    mission_id: string;
+    goal: string;
+    status: string;
+    owner_id: string;
+    workspace_id: string;
+    project_id: string;
+    run_id: string;
+    selected_workflow_id: string;
+    planner_output: Record<string, unknown>;
+    capability_scores: Array<Record<string, unknown>>;
+    execution_recommendations: Array<Record<string, unknown>>;
+    temporary_agents: Array<Record<string, unknown>>;
+    mission_timeline: Array<Record<string, unknown>>;
+    artifacts: Array<Record<string, unknown>>;
+    governance: Record<string, unknown>;
+    execution_result: Record<string, unknown>;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface AutonomousMissionStatusRecord {
+    mission_id: string;
+    status: string;
+    run_id: string;
+    selected_workflow_id: string;
+    updated_at: string;
+}
+
+export interface MissionControlDashboard {
+    running_missions: number;
+    planned_missions: number;
+    completed_missions: number;
+    failed_missions: number;
+    mission_success_rate: number;
+    average_runtime_ms: number;
+    active_runs: number;
+    retries: number;
+    recent_failures: Array<Record<string, unknown>>;
+}
+
+export interface MissionTemplateRequest {
+    name: string;
+    description?: string;
+    template: Record<string, unknown>;
+}
+
+export interface MissionTemplateRecord {
+    template_id: string;
+    name: string;
+    description: string;
+    template: Record<string, unknown>;
+    version: number;
+    created_at: string;
+    updated_at: string;
+}
+
 export interface CreateKnowledgeSourceRequest {
     project_id: string;
     name: string;

@@ -128,6 +128,14 @@ export const ConversationSidebar = ({
                     Execution Monitor
                 </NavLink>
                 <NavLink
+                    to="/mission-control"
+                    className={({ isActive }) =>
+                        `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`
+                    }
+                >
+                    Mission Control
+                </NavLink>
+                <NavLink
                     to="/knowledge-sources"
                     className={({ isActive }) =>
                         `sidebar-nav-link ${isActive ? "sidebar-nav-link--active" : ""}`

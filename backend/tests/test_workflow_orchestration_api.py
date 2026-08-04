@@ -441,3 +441,103 @@ def test_workflow_pause_and_resume_endpoints(
         assert retried.json()["id"] == run_id
     else:
         assert retried.status_code == 422
+
+
+def test_autonomous_mission_endpoints_and_templates(
+    orchestration_client: TestClient,
+) -> None:
+    created = orchestration_client.post(
+        "/api/workflows/missions",
+        json={
+            "goal": "Analyze our GitHub repository and produce recommendations",
+            "constraints": ["No destructive actions"],
+            "context": {"priority": "high"},
+            "auto_execute": False,
+            "wait_for_completion": False,
+        },
+    )
+    assert created.status_code == 201
+    mission = created.json()
+    mission_id = mission["mission_id"]
+    assert mission["status"] == "planned"
+    assert mission["goal"].startswith("Analyze")
+
+    listed = orchestration_client.get("/api/workflows/missions")
+    assert listed.status_code == 200
+    assert any(item["mission_id"] == mission_id for item in listed.json())
+
+    fetched = orchestration_client.get(f"/api/workflows/missions/{mission_id}")
+    assert fetched.status_code == 200
+    assert fetched.json()["mission_id"] == mission_id
+
+    status = orchestration_client.get(f"/api/workflows/missions/{mission_id}/status")
+    assert status.status_code == 200
+    assert status.json()["mission_id"] == mission_id
+
+    planner = orchestration_client.get(f"/api/workflows/missions/{mission_id}/planner")
+    assert planner.status_code == 200
+    planner_output = planner.json()["planner_output"]
+    assert isinstance(planner_output.get("task_graph", []), list)
+    assert isinstance(planner_output.get("mission", {}), dict)
+
+    scores = orchestration_client.get(
+        f"/api/workflows/missions/{mission_id}/capability-scores"
+    )
+    assert scores.status_code == 200
+    assert isinstance(scores.json()["scores"], list)
+
+    recommendations = orchestration_client.get(
+        f"/api/workflows/missions/{mission_id}/recommendations"
+    )
+    assert recommendations.status_code == 200
+    assert isinstance(recommendations.json()["recommendations"], list)
+
+    temporary_agents = orchestration_client.get(
+        f"/api/workflows/missions/{mission_id}/temporary-agents"
+    )
+    assert temporary_agents.status_code == 200
+    assert isinstance(temporary_agents.json()["temporary_agents"], list)
+
+    dashboard = orchestration_client.get("/api/workflows/missions/dashboard")
+    assert dashboard.status_code == 200
+    assert "running_missions" in dashboard.json()
+    assert "mission_success_rate" in dashboard.json()
+
+    template_created = orchestration_client.post(
+        "/api/workflows/mission-templates",
+        json={
+            "name": "Repository Analysis Template",
+            "description": "Reusable mission plan for repository review.",
+            "template": {
+                "phases": ["Requirements", "Research", "Validation"],
+                "governance": {"require_approval": True},
+            },
+        },
+    )
+    assert template_created.status_code == 200
+    template = template_created.json()
+    template_id = template["template_id"]
+    assert template["version"] == 1
+
+    template_updated = orchestration_client.put(
+        f"/api/workflows/mission-templates/{template_id}",
+        json={
+            "name": "Repository Analysis Template v2",
+            "description": "Updated reusable mission plan.",
+            "template": {
+                "phases": [
+                    "Requirements",
+                    "Research",
+                    "Architecture",
+                    "Validation",
+                ],
+                "governance": {"require_approval": True},
+            },
+        },
+    )
+    assert template_updated.status_code == 200
+    assert template_updated.json()["version"] == 2
+
+    templates = orchestration_client.get("/api/workflows/mission-templates")
+    assert templates.status_code == 200
+    assert any(item["template_id"] == template_id for item in templates.json())

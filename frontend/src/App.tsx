@@ -6,6 +6,7 @@ import { ChatPage } from "./pages/ChatPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { KnowledgeSourcesPage } from "./pages/KnowledgeSourcesPage";
 import { MemoryPage } from "./pages/MemoryPage";
+import { MissionControlPage } from "./pages/MissionControlPage";
 import { RetrievalInspectorPage } from "./pages/RetrievalInspectorPage";
 import { UploadsPage } from "./pages/UploadsPage";
 import { WorkflowBuilderPage } from "./pages/WorkflowBuilderPage";
@@ -92,6 +93,7 @@ const App = () => {
                 <Route path="workflows/history" element={<WorkflowHistoryPage />} />
                 <Route path="workflows/monitor" element={<WorkflowMonitorPage />} />
                 <Route path="workflows/monitor/:runId" element={<WorkflowMonitorPage />} />
+                <Route path="mission-control" element={<MissionControlPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/chat" replace />} />
         </Routes>

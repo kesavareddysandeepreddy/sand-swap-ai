@@ -5,11 +5,18 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
 from backend.agent_orchestration.models.workflow import (
+    AutonomousMissionRequest,
+    AutonomousMissionResponse,
+    AutonomousMissionStatusResponse,
+    MissionControlDashboardResponse,
+    MissionTemplateRequest,
+    MissionTemplateResponse,
     ValidationResponse,
     WorkflowCreateRequest,
     WorkflowDashboardResponse,
@@ -48,6 +55,250 @@ def workflow_dashboard(
         project_id=project_id,
     )
     return WorkflowDashboardResponse(**metrics)
+
+
+@router.get("/missions/dashboard", response_model=MissionControlDashboardResponse)
+def mission_control_dashboard(
+    service: WorkflowServiceDependency,
+    current_user: CurrentUserDependency,
+    ownership_context: OwnershipContextDependency,
+) -> MissionControlDashboardResponse:
+    """Return autonomous mission-control dashboard metrics."""
+    owner_id = resolve_owner_id(current_user)
+    workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
+    metrics = service.mission_control_dashboard(
+        owner_id=owner_id,
+        workspace_id=workspace_id,
+        project_id=project_id,
+    )
+    return MissionControlDashboardResponse(**metrics)
+
+
+@router.post(
+    "/missions",
+    response_model=AutonomousMissionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_autonomous_mission(
+    payload: AutonomousMissionRequest,
+    service: WorkflowServiceDependency,
+    current_user: CurrentUserDependency,
+    ownership_context: OwnershipContextDependency,
+) -> AutonomousMissionResponse:
+    """Create and optionally execute one autonomous mission from a natural-language goal."""
+    owner_id = resolve_owner_id(current_user)
+    workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
+    try:
+        mission = service.create_autonomous_mission(
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            payload=payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    return AutonomousMissionResponse(**mission)
+
+
+@router.get("/missions", response_model=list[AutonomousMissionResponse])
+def list_autonomous_missions(
+    service: WorkflowServiceDependency,
+    current_user: CurrentUserDependency,
+    ownership_context: OwnershipContextDependency,
+    limit: int = Query(50, ge=1, le=500),
+) -> list[AutonomousMissionResponse]:
+    """List autonomous mission history in current ownership scope."""
+    owner_id = resolve_owner_id(current_user)
+    workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
+    missions = service.list_autonomous_missions(
+        owner_id=owner_id,
+        workspace_id=workspace_id,
+        project_id=project_id,
+        limit=limit,
+    )
+    return [AutonomousMissionResponse(**item) for item in missions]
+
+
+@router.get("/missions/{mission_id}", response_model=AutonomousMissionResponse)
+def get_autonomous_mission(
+    mission_id: str,
+    service: WorkflowServiceDependency,
+) -> AutonomousMissionResponse:
+    """Return full autonomous mission payload by identifier."""
+    try:
+        mission = service.get_autonomous_mission(mission_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mission not found",
+        ) from exc
+    return AutonomousMissionResponse(**mission)
+
+
+@router.get(
+    "/missions/{mission_id}/status",
+    response_model=AutonomousMissionStatusResponse,
+)
+def get_autonomous_mission_status(
+    mission_id: str,
+    service: WorkflowServiceDependency,
+) -> AutonomousMissionStatusResponse:
+    """Return concise autonomous mission status for polling."""
+    try:
+        payload = service.get_autonomous_mission_status(mission_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mission not found",
+        ) from exc
+    return AutonomousMissionStatusResponse(**payload)
+
+
+@router.get("/missions/{mission_id}/planner")
+def get_autonomous_mission_planner_output(
+    mission_id: str,
+    service: WorkflowServiceDependency,
+) -> dict[str, Any]:
+    """Return planner output and graph explainability for one mission."""
+    try:
+        return {
+            "mission_id": mission_id,
+            "planner_output": service.get_autonomous_mission_planner_output(mission_id),
+        }
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mission not found",
+        ) from exc
+
+
+@router.get("/missions/{mission_id}/capability-scores")
+def get_autonomous_mission_capability_scores(
+    mission_id: str,
+    service: WorkflowServiceDependency,
+) -> dict[str, Any]:
+    """Return detailed capability ranking and selected agents for each task."""
+    try:
+        return {
+            "mission_id": mission_id,
+            "scores": service.get_autonomous_mission_capability_scores(mission_id),
+        }
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mission not found",
+        ) from exc
+
+
+@router.get("/missions/{mission_id}/recommendations")
+def get_autonomous_mission_recommendations(
+    mission_id: str,
+    service: WorkflowServiceDependency,
+) -> dict[str, Any]:
+    """Return autonomous recommendations for optimization and governance."""
+    try:
+        return {
+            "mission_id": mission_id,
+            "recommendations": service.get_autonomous_mission_recommendations(
+                mission_id
+            ),
+        }
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mission not found",
+        ) from exc
+
+
+@router.get("/missions/{mission_id}/temporary-agents")
+def get_autonomous_mission_temporary_agents(
+    mission_id: str,
+    service: WorkflowServiceDependency,
+) -> dict[str, Any]:
+    """Return temporary execution agents created for one mission."""
+    try:
+        return {
+            "mission_id": mission_id,
+            "temporary_agents": service.get_autonomous_mission_temporary_agents(
+                mission_id
+            ),
+        }
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mission not found",
+        ) from exc
+
+
+@router.post("/mission-templates", response_model=MissionTemplateResponse)
+def create_mission_template(
+    payload: MissionTemplateRequest,
+    service: WorkflowServiceDependency,
+    current_user: CurrentUserDependency,
+    ownership_context: OwnershipContextDependency,
+) -> MissionTemplateResponse:
+    """Create one reusable autonomous execution template."""
+    owner_id = resolve_owner_id(current_user)
+    workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
+    try:
+        created = service.create_mission_template(
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            payload=payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return MissionTemplateResponse(**created)
+
+
+@router.put("/mission-templates/{template_id}", response_model=MissionTemplateResponse)
+def update_mission_template(
+    template_id: str,
+    payload: MissionTemplateRequest,
+    service: WorkflowServiceDependency,
+) -> MissionTemplateResponse:
+    """Update one reusable mission template and increment version."""
+    try:
+        updated = service.update_mission_template(template_id, payload=payload)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mission template not found",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return MissionTemplateResponse(**updated)
+
+
+@router.get("/mission-templates", response_model=list[MissionTemplateResponse])
+def list_mission_templates(
+    service: WorkflowServiceDependency,
+    current_user: CurrentUserDependency,
+    ownership_context: OwnershipContextDependency,
+) -> list[MissionTemplateResponse]:
+    """List reusable mission templates in ownership scope."""
+    owner_id = resolve_owner_id(current_user)
+    workspace_id = resolve_workspace_id(ownership_context)
+    project_id = resolve_project_id(ownership_context)
+    templates = service.list_mission_templates(
+        owner_id=owner_id,
+        workspace_id=workspace_id,
+        project_id=project_id,
+    )
+    return [MissionTemplateResponse(**item) for item in templates]
 
 
 @router.get("", response_model=list[WorkflowResponse])

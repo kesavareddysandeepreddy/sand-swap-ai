@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from backend.agent_orchestration.domain.run import WorkflowRun, WorkflowRunStatus
 from backend.agent_orchestration.domain.workflow import (
@@ -17,6 +18,8 @@ from backend.agent_orchestration.executor.workflow_executor import (
     WorkflowExecutionEngine,
 )
 from backend.agent_orchestration.models.workflow import (
+    AutonomousMissionRequest,
+    MissionTemplateRequest,
     WorkflowCreateRequest,
     WorkflowExecutionRequest,
     WorkflowRunActionRequest,
@@ -26,7 +29,12 @@ from backend.agent_orchestration.planner.validator import WorkflowValidator
 from backend.agent_orchestration.repository.workflow_repository import (
     WorkflowRepository,
 )
-from backend.agent_orchestration.runtime import MultiAgentRuntime
+from backend.agent_orchestration.runtime import (
+    AutonomousPlanner,
+    CapabilityScoringEngine,
+    MultiAgentRuntime,
+)
+from backend.agent_orchestration.runtime.autonomous_planner import PlannerContext
 from backend.agent_orchestration.scheduler.background_scheduler import (
     BackgroundWorkflowScheduler,
 )
@@ -57,6 +65,8 @@ class WorkflowService:
         self._agent_service = agent_service
         self._llm_client = llm_client
         self._multi_agent_runtime = MultiAgentRuntime()
+        self._autonomous_planner = AutonomousPlanner()
+        self._capability_engine = CapabilityScoringEngine()
 
     def list_workflows(
         self,
@@ -703,6 +713,394 @@ class WorkflowService:
         )
         return run
 
+    def create_autonomous_mission(
+        self,
+        *,
+        owner_id: str,
+        workspace_id: str,
+        project_id: str,
+        payload: AutonomousMissionRequest,
+    ) -> dict[str, Any]:
+        """Plan and optionally execute one autonomous mission."""
+        workflows = self._repository.list_workflows(
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
+        agents = self._agent_service.list_agents(
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
+        recent_runs = self._repository.list_recent_runs(
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            limit=200,
+        )
+
+        workload: dict[str, int] = {}
+        success: dict[str, float] = {}
+        for run in recent_runs:
+            for message in run.messages:
+                agent_id = message.receiver_agent or message.receiver
+                if not agent_id:
+                    continue
+                workload[agent_id] = workload.get(agent_id, 0) + int(
+                    run.status in {WorkflowRunStatus.RUNNING, WorkflowRunStatus.QUEUED}
+                )
+                entry = success.setdefault(agent_id, 0.5)
+                if run.status == WorkflowRunStatus.SUCCEEDED:
+                    success[agent_id] = min(1.0, entry + 0.02)
+                elif run.status == WorkflowRunStatus.FAILED:
+                    success[agent_id] = max(0.0, entry - 0.03)
+
+        workflow_snapshots = [
+            {
+                "id": workflow.id,
+                "name": workflow.name,
+                "description": workflow.description,
+                "nodes": [
+                    {"id": node.id, "name": node.name, "node_type": node.node_type}
+                    for node in workflow.nodes
+                ],
+            }
+            for workflow in workflows
+        ]
+        agent_snapshots = [
+            {
+                "id": agent.id,
+                "name": agent.name,
+                "capabilities": list(getattr(agent, "capabilities", [])),
+                "tags": list(getattr(agent, "tags", [])),
+                "tools_allowed": list(getattr(agent, "tools_allowed", [])),
+                "knowledge_sources": (
+                    list(getattr(agent, "knowledge_source_ids", []))
+                    + list(getattr(agent, "github_repositories", []))
+                    + list(getattr(agent, "sharepoint_sites", []))
+                ),
+            }
+            for agent in agents
+        ]
+
+        plan = self._autonomous_planner.plan(
+            context=self._autonomous_planner_context(
+                goal=payload.goal,
+                constraints=list(payload.constraints),
+                context=dict(payload.context),
+                workflows=workflow_snapshots,
+                agents=agent_snapshots,
+                agent_workload=workload,
+                agent_success=success,
+            )
+        )
+
+        mission_id = str(uuid4())
+        now = datetime.now(UTC).isoformat()
+        mission: dict[str, Any] = {
+            "mission_id": mission_id,
+            "goal": payload.goal,
+            "status": "planned",
+            "owner_id": owner_id,
+            "workspace_id": workspace_id,
+            "project_id": project_id,
+            "run_id": "",
+            "selected_workflow_id": str(
+                plan.get("workflow_reuse", {}).get("selected_workflow_id", "")
+            ),
+            "planner_output": dict(plan),
+            "capability_scores": list(plan.get("capability_scores", [])),
+            "execution_recommendations": list(plan.get("recommendations", [])),
+            "temporary_agents": list(plan.get("temporary_agents", [])),
+            "mission_timeline": [
+                {
+                    "timestamp": now,
+                    "event": "mission_planned",
+                    "detail": "Autonomous planner generated task graph and selection rationale.",
+                }
+            ],
+            "artifacts": [],
+            "governance": {
+                "requires_approval": bool(plan.get("requires_approval", False)),
+                "required_approvals": list(plan.get("required_approvals", [])),
+            },
+            "execution_result": {},
+            "created_at": now,
+            "updated_at": now,
+        }
+        self._repository.create_mission(mission)
+
+        if not payload.auto_execute:
+            return mission
+
+        mission["status"] = "running"
+        mission["updated_at"] = datetime.now(UTC).isoformat()
+        mission["mission_timeline"].append(
+            {
+                "timestamp": mission["updated_at"],
+                "event": "execution_started",
+                "detail": "Mission execution started by autonomous supervisor.",
+            }
+        )
+        self._repository.update_mission(mission)
+
+        workflow_reuse = dict(plan.get("workflow_reuse", {}))
+        reuse = bool(workflow_reuse.get("reuse", False))
+        selected_workflow_id = str(workflow_reuse.get("selected_workflow_id", ""))
+
+        if reuse and selected_workflow_id:
+            run = self.execute_workflow(
+                selected_workflow_id,
+                owner_id=owner_id,
+                workspace_id=workspace_id,
+                project_id=project_id,
+                payload=WorkflowExecutionRequest(
+                    input_payload={
+                        "mission_id": mission_id,
+                        "goal": payload.goal,
+                        "planner_output": dict(plan),
+                    },
+                    conversation_id="",
+                    shared_variables=dict(payload.context),
+                    wait_for_completion=payload.wait_for_completion,
+                ),
+            )
+            mission["run_id"] = run.id
+            mission["status"] = (
+                "running"
+                if run.status in {WorkflowRunStatus.QUEUED, WorkflowRunStatus.RUNNING}
+                else str(run.status)
+            )
+            mission["updated_at"] = datetime.now(UTC).isoformat()
+            mission["mission_timeline"].append(
+                {
+                    "timestamp": mission["updated_at"],
+                    "event": "workflow_reused",
+                    "detail": f"Reused workflow {selected_workflow_id} for mission execution.",
+                }
+            )
+            self._repository.update_mission(mission)
+            return mission
+
+        runtime_result = self._execute_autonomous_runtime(
+            goal=payload.goal,
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            plan=plan,
+            mission_id=mission_id,
+        )
+        mission["execution_result"] = dict(runtime_result)
+        mission["artifacts"] = list(runtime_result.get("artifacts", []))
+        mission["mission_timeline"].extend(
+            list(runtime_result.get("timeline", []))[:60]
+        )
+        mission["status"] = (
+            "completed" if runtime_result.get("status") == "completed" else "failed"
+        )
+
+        if mission["status"] == "failed":
+            replanned = self._replan_after_failure(payload.goal, plan)
+            mission["planner_output"]["replanned"] = replanned
+            mission["execution_recommendations"].append(
+                {
+                    "type": "replan",
+                    "message": "Mission failed during autonomous runtime; replanned graph is attached.",
+                }
+            )
+
+        mission["updated_at"] = datetime.now(UTC).isoformat()
+        mission["mission_timeline"].append(
+            {
+                "timestamp": mission["updated_at"],
+                "event": "execution_finished",
+                "detail": "Mission execution finished in autonomous runtime.",
+            }
+        )
+        self._repository.update_mission(mission)
+        return mission
+
+    def list_autonomous_missions(
+        self,
+        *,
+        owner_id: str,
+        workspace_id: str,
+        project_id: str,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """List recent autonomous missions in ownership scope."""
+        return self._repository.list_missions(
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            limit=limit,
+        )
+
+    def get_autonomous_mission(self, mission_id: str) -> dict[str, Any]:
+        """Fetch one mission by identifier."""
+        mission = self._repository.get_mission(mission_id)
+        if mission is None:
+            raise KeyError(f"Mission not found: {mission_id}")
+        return mission
+
+    def get_autonomous_mission_status(self, mission_id: str) -> dict[str, Any]:
+        """Return concise mission status for polling."""
+        mission = self.get_autonomous_mission(mission_id)
+        return {
+            "mission_id": mission_id,
+            "status": str(mission.get("status", "planned")),
+            "run_id": str(mission.get("run_id", "")),
+            "selected_workflow_id": str(mission.get("selected_workflow_id", "")),
+            "updated_at": datetime.fromisoformat(str(mission.get("updated_at"))),
+        }
+
+    def get_autonomous_mission_planner_output(self, mission_id: str) -> dict[str, Any]:
+        """Return planner output for mission explainability."""
+        mission = self.get_autonomous_mission(mission_id)
+        return dict(mission.get("planner_output", {}))
+
+    def get_autonomous_mission_capability_scores(
+        self, mission_id: str
+    ) -> list[dict[str, Any]]:
+        """Return mission capability scoring details."""
+        mission = self.get_autonomous_mission(mission_id)
+        return [
+            dict(item)
+            for item in mission.get("capability_scores", [])
+            if isinstance(item, dict)
+        ]
+
+    def get_autonomous_mission_recommendations(
+        self, mission_id: str
+    ) -> list[dict[str, Any]]:
+        """Return planner recommendations for one mission."""
+        mission = self.get_autonomous_mission(mission_id)
+        return [
+            dict(item)
+            for item in mission.get("execution_recommendations", [])
+            if isinstance(item, dict)
+        ]
+
+    def get_autonomous_mission_temporary_agents(
+        self, mission_id: str
+    ) -> list[dict[str, Any]]:
+        """Return mission temporary execution-agent descriptors."""
+        mission = self.get_autonomous_mission(mission_id)
+        return [
+            dict(item)
+            for item in mission.get("temporary_agents", [])
+            if isinstance(item, dict)
+        ]
+
+    def mission_control_dashboard(
+        self,
+        *,
+        owner_id: str,
+        workspace_id: str,
+        project_id: str,
+    ) -> dict[str, Any]:
+        """Aggregate mission-control metrics for current ownership scope."""
+        missions = self._repository.list_missions(
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            limit=500,
+        )
+        completed = [m for m in missions if str(m.get("status", "")) == "completed"]
+        failed = [m for m in missions if str(m.get("status", "")) == "failed"]
+        running = [m for m in missions if str(m.get("status", "")) == "running"]
+        planned = [m for m in missions if str(m.get("status", "")) == "planned"]
+
+        runtimes: list[float] = []
+        retries = 0
+        for mission in missions:
+            planner_output = mission.get("planner_output", {})
+            if isinstance(planner_output, dict):
+                runtimes.append(
+                    float(planner_output.get("estimated_runtime_ms", 0.0) or 0.0)
+                )
+            execution = mission.get("execution_result", {})
+            if isinstance(execution, dict):
+                metrics = execution.get("metrics", {})
+                if isinstance(metrics, dict):
+                    retries += int(metrics.get("retries", 0) or 0)
+
+        return {
+            "running_missions": len(running),
+            "planned_missions": len(planned),
+            "completed_missions": len(completed),
+            "failed_missions": len(failed),
+            "mission_success_rate": (
+                len(completed) / max(1, (len(completed) + len(failed)))
+            ),
+            "average_runtime_ms": sum(runtimes) / max(1, len(runtimes)),
+            "active_runs": len([m for m in missions if str(m.get("run_id", ""))]),
+            "retries": retries,
+            "recent_failures": [
+                {
+                    "mission_id": str(item.get("mission_id", "")),
+                    "goal": str(item.get("goal", "")),
+                    "updated_at": str(item.get("updated_at", "")),
+                }
+                for item in failed[:10]
+            ],
+        }
+
+    def create_mission_template(
+        self,
+        *,
+        owner_id: str,
+        workspace_id: str,
+        project_id: str,
+        payload: MissionTemplateRequest,
+    ) -> dict[str, Any]:
+        """Create a reusable mission execution template."""
+        now = datetime.now(UTC).isoformat()
+        template = {
+            "template_id": str(uuid4()),
+            "owner_id": owner_id,
+            "workspace_id": workspace_id,
+            "project_id": project_id,
+            "name": payload.name,
+            "description": payload.description,
+            "template": dict(payload.template),
+            "version": 1,
+            "created_at": now,
+            "updated_at": now,
+        }
+        return self._repository.create_mission_template(template)
+
+    def update_mission_template(
+        self,
+        template_id: str,
+        *,
+        payload: MissionTemplateRequest,
+    ) -> dict[str, Any]:
+        """Update an existing mission template and increment version."""
+        current = self._repository.get_mission_template(template_id)
+        if current is None:
+            raise KeyError("Mission template not found")
+        current["name"] = payload.name
+        current["description"] = payload.description
+        current["template"] = dict(payload.template)
+        current["version"] = int(current.get("version", 1)) + 1
+        current["updated_at"] = datetime.now(UTC).isoformat()
+        return self._repository.update_mission_template(current)
+
+    def list_mission_templates(
+        self,
+        *,
+        owner_id: str,
+        workspace_id: str,
+        project_id: str,
+    ) -> list[dict[str, Any]]:
+        """List available mission templates for current scope."""
+        return self._repository.list_mission_templates(
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
+
     def _execute_run(self, *, workflow: Workflow, run_id: str) -> WorkflowRun:
         run = self._require_run(run_id)
         resume_from_nodes: list[str] = []
@@ -905,6 +1303,218 @@ class WorkflowService:
         if latest is None:
             return False
         return latest.status == WorkflowRunStatus.PAUSED
+
+    def _autonomous_planner_context(
+        self,
+        *,
+        goal: str,
+        constraints: list[str],
+        context: dict[str, Any],
+        workflows: list[dict[str, Any]],
+        agents: list[dict[str, Any]],
+        agent_workload: dict[str, int],
+        agent_success: dict[str, float],
+    ) -> PlannerContext:
+        return PlannerContext(
+            goal=goal,
+            constraints=constraints,
+            context=context,
+            workflows=workflows,
+            agents=agents,
+            agent_workload=agent_workload,
+            agent_success=agent_success,
+        )
+
+    def _execute_autonomous_runtime(
+        self,
+        *,
+        goal: str,
+        owner_id: str,
+        workspace_id: str,
+        project_id: str,
+        plan: dict[str, Any],
+        mission_id: str,
+    ) -> dict[str, Any]:
+        task_graph = [
+            dict(item) for item in plan.get("task_graph", []) if isinstance(item, dict)
+        ]
+        planned_tasks = [
+            {
+                "task_id": str(item.get("task_id", "")),
+                "title": str(item.get("title", "Task")),
+                "description": str(item.get("description", "")),
+                "required_capabilities": self._capability_engine.infer_required_capabilities(
+                    str(item.get("description", ""))
+                ),
+            }
+            for item in task_graph
+        ]
+
+        runtime_agents = self._agent_service.list_agents(
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
+        available_agent_descriptors = [
+            {
+                "id": item.id,
+                "capabilities": list(
+                    getattr(item, "capabilities", ["general"])
+                    if isinstance(getattr(item, "capabilities", ["general"]), list)
+                    else ["general"]
+                ),
+                "tags": (
+                    list(getattr(item, "tags", []))
+                    if isinstance(getattr(item, "tags", []), list)
+                    else []
+                ),
+                "allowed_tools": (
+                    list(getattr(item, "tools_allowed", []))
+                    if isinstance(getattr(item, "tools_allowed", []), list)
+                    else []
+                ),
+                "knowledge_sources": (
+                    list(getattr(item, "knowledge_source_ids", []))
+                    if isinstance(getattr(item, "knowledge_source_ids", []), list)
+                    else []
+                ),
+            }
+            for item in runtime_agents
+        ]
+        available_agent_descriptors.extend(
+            [
+                {
+                    "id": str(temp.get("agent_id", "")),
+                    "capabilities": list(temp.get("required_capabilities", [])),
+                    "tags": ["temporary"],
+                    "allowed_tools": list(temp.get("tools_allowed", [])),
+                    "knowledge_sources": list(plan.get("selected_knowledge", [])),
+                }
+                for temp in plan.get("temporary_agents", [])
+                if isinstance(temp, dict)
+            ]
+        )
+
+        def _execute_agent(
+            agent_id: str,
+            task_prompt: str,
+            task_context: dict[str, Any],
+        ) -> dict[str, Any]:
+            runtime_agent = self._agent_service.get_agent(
+                agent_id,
+                owner_id=owner_id,
+                workspace_id=workspace_id,
+                project_id=project_id,
+            )
+
+            payload = {
+                "mission_id": mission_id,
+                "goal": goal,
+                "task_prompt": task_prompt,
+                "task_context": task_context,
+            }
+
+            if runtime_agent is None:
+                return {
+                    "result": f"Temporary agent {agent_id} completed: {task_prompt}",
+                    "reasoning": "Temporary execution agent synthesized output.",
+                    "tool_outputs": [],
+                    "memory_references": [],
+                    "knowledge_references": [],
+                    "confidence": 0.66,
+                }
+
+            response = self._llm_client.generate(
+                prompt=(
+                    f"Mission task: {task_prompt}\n"
+                    f"Agent goal: {runtime_agent.goal}\n"
+                    f"Agent instructions: {runtime_agent.instructions}\n"
+                    "Return JSON with keys: result, reasoning, tool_outputs, "
+                    "memory_references, knowledge_references, confidence.\n"
+                    f"Payload: {json.dumps(payload, ensure_ascii=True)}"
+                ),
+                system=runtime_agent.system_prompt,
+                model=runtime_agent.model or None,
+                temperature=runtime_agent.temperature,
+                format_json=True,
+            )
+            if isinstance(response, dict):
+                output = dict(response)
+            else:
+                output = {
+                    "result": str(response),
+                    "reasoning": "",
+                    "tool_outputs": [],
+                    "memory_references": [],
+                    "knowledge_references": [],
+                    "confidence": 0.6,
+                }
+            output.setdefault("result", "")
+            output.setdefault("reasoning", "")
+            output.setdefault("tool_outputs", [])
+            output.setdefault("memory_references", [])
+            output.setdefault("knowledge_references", [])
+            output.setdefault("confidence", 0.6)
+            return output
+
+        runtime_context = {
+            "planner_agent_id": "autonomous-planner",
+            "supervisor_agent_id": "autonomous-supervisor",
+            "max_retries": 2,
+            "retry_policy": "different_agent",
+            "planned_tasks": planned_tasks,
+            "shared_variables": {},
+        }
+
+        return self._multi_agent_runtime.run_goal(
+            workflow_id="",
+            execution_id=mission_id,
+            conversation_id="",
+            node_id="autonomous-mission",
+            node_name="Autonomous Mission",
+            goal=goal,
+            runtime_context=runtime_context,
+            available_agents=available_agent_descriptors,
+            execute_agent=_execute_agent,
+        )
+
+    @staticmethod
+    def _replan_after_failure(goal: str, plan: dict[str, Any]) -> dict[str, Any]:
+        task_graph = [
+            dict(item) for item in plan.get("task_graph", []) if isinstance(item, dict)
+        ]
+        if not task_graph:
+            return {
+                "task_graph": [],
+                "reason": "No original task graph was available for replanning.",
+            }
+
+        replanned_tasks: list[dict[str, Any]] = []
+        for item in task_graph:
+            task_id = str(item.get("task_id", ""))
+            title = str(item.get("title", "Task"))
+            description = str(item.get("description", ""))
+            replanned_tasks.append(
+                {
+                    "task_id": f"{task_id}-a",
+                    "title": f"{title} (part A)",
+                    "description": description,
+                    "depends_on": list(item.get("depends_on", [])),
+                }
+            )
+            replanned_tasks.append(
+                {
+                    "task_id": f"{task_id}-b",
+                    "title": f"{title} (part B validation)",
+                    "description": f"Validate and harden results for: {goal}",
+                    "depends_on": [f"{task_id}-a"],
+                }
+            )
+
+        return {
+            "task_graph": replanned_tasks,
+            "reason": "Original execution failed; tasks were split to improve recovery and validation.",
+        }
 
     @staticmethod
     def _next_nodes_after_pending(

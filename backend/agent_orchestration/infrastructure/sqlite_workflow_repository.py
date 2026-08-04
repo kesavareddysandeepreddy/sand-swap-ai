@@ -83,6 +83,33 @@ class SQLiteWorkflowRepository(WorkflowRepository):
                     updated_at TEXT NOT NULL
                 )
                 """)
+            self._connection.execute("""
+                CREATE TABLE IF NOT EXISTS orchestration_missions (
+                    mission_id TEXT PRIMARY KEY,
+                    owner_id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL,
+                    project_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    goal TEXT NOT NULL,
+                    mission_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """)
+            self._connection.execute("""
+                CREATE TABLE IF NOT EXISTS orchestration_mission_templates (
+                    template_id TEXT PRIMARY KEY,
+                    owner_id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL,
+                    project_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    template_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """)
             self._connection.commit()
 
     def create_workflow(self, workflow: Workflow) -> Workflow:
@@ -412,6 +439,198 @@ class SQLiteWorkflowRepository(WorkflowRepository):
                 )[:5]
             ],
         }
+
+    def create_mission(self, mission: dict[str, Any]) -> dict[str, Any]:
+        mission_id = str(mission.get("mission_id", "")).strip()
+        if not mission_id:
+            raise ValueError("mission_id is required")
+
+        with self._lock:
+            self._connection.execute(
+                """
+                INSERT INTO orchestration_missions (
+                    mission_id, owner_id, workspace_id, project_id, status, goal,
+                    mission_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    mission_id,
+                    str(mission.get("owner_id", "anonymous")),
+                    str(mission.get("workspace_id", "default")),
+                    str(mission.get("project_id", "default")),
+                    str(mission.get("status", "planned")),
+                    str(mission.get("goal", "")),
+                    json.dumps(mission),
+                    str(mission.get("created_at", datetime.now(UTC).isoformat())),
+                    str(mission.get("updated_at", datetime.now(UTC).isoformat())),
+                ),
+            )
+            self._connection.commit()
+        return mission
+
+    def update_mission(self, mission: dict[str, Any]) -> dict[str, Any]:
+        mission_id = str(mission.get("mission_id", "")).strip()
+        if not mission_id:
+            raise ValueError("mission_id is required")
+
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                UPDATE orchestration_missions
+                SET status = ?, goal = ?, mission_json = ?, updated_at = ?
+                WHERE mission_id = ?
+                """,
+                (
+                    str(mission.get("status", "planned")),
+                    str(mission.get("goal", "")),
+                    json.dumps(mission),
+                    str(mission.get("updated_at", datetime.now(UTC).isoformat())),
+                    mission_id,
+                ),
+            )
+            self._connection.commit()
+        if cursor.rowcount == 0:
+            raise ValueError(f"Mission not found: {mission_id}")
+        return mission
+
+    def get_mission(self, mission_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT mission_json
+                FROM orchestration_missions
+                WHERE mission_id = ?
+                """,
+                (mission_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        payload = self._parse_json(str(row["mission_json"]), {})
+        if not isinstance(payload, dict):
+            return None
+        return dict(payload)
+
+    def list_missions(
+        self,
+        *,
+        owner_id: str,
+        workspace_id: str,
+        project_id: str,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT mission_json
+                FROM orchestration_missions
+                WHERE owner_id = ? AND workspace_id = ? AND project_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (owner_id, workspace_id, project_id, max(1, limit)),
+            ).fetchall()
+        missions: list[dict[str, Any]] = []
+        for row in rows:
+            payload = self._parse_json(str(row["mission_json"]), {})
+            if isinstance(payload, dict):
+                missions.append(dict(payload))
+        return missions
+
+    def create_mission_template(self, template: dict[str, Any]) -> dict[str, Any]:
+        template_id = str(template.get("template_id", "")).strip()
+        if not template_id:
+            raise ValueError("template_id is required")
+
+        with self._lock:
+            self._connection.execute(
+                """
+                INSERT INTO orchestration_mission_templates (
+                    template_id, owner_id, workspace_id, project_id, name, description,
+                    version, template_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    template_id,
+                    str(template.get("owner_id", "anonymous")),
+                    str(template.get("workspace_id", "default")),
+                    str(template.get("project_id", "default")),
+                    str(template.get("name", "")),
+                    str(template.get("description", "")),
+                    int(template.get("version", 1)),
+                    json.dumps(template),
+                    str(template.get("created_at", datetime.now(UTC).isoformat())),
+                    str(template.get("updated_at", datetime.now(UTC).isoformat())),
+                ),
+            )
+            self._connection.commit()
+        return template
+
+    def update_mission_template(self, template: dict[str, Any]) -> dict[str, Any]:
+        template_id = str(template.get("template_id", "")).strip()
+        if not template_id:
+            raise ValueError("template_id is required")
+
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                UPDATE orchestration_mission_templates
+                SET name = ?, description = ?, version = ?, template_json = ?, updated_at = ?
+                WHERE template_id = ?
+                """,
+                (
+                    str(template.get("name", "")),
+                    str(template.get("description", "")),
+                    int(template.get("version", 1)),
+                    json.dumps(template),
+                    str(template.get("updated_at", datetime.now(UTC).isoformat())),
+                    template_id,
+                ),
+            )
+            self._connection.commit()
+        if cursor.rowcount == 0:
+            raise ValueError(f"Mission template not found: {template_id}")
+        return template
+
+    def list_mission_templates(
+        self,
+        *,
+        owner_id: str,
+        workspace_id: str,
+        project_id: str,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT template_json
+                FROM orchestration_mission_templates
+                WHERE owner_id = ? AND workspace_id = ? AND project_id = ?
+                ORDER BY updated_at DESC
+                """,
+                (owner_id, workspace_id, project_id),
+            ).fetchall()
+        templates: list[dict[str, Any]] = []
+        for row in rows:
+            payload = self._parse_json(str(row["template_json"]), {})
+            if isinstance(payload, dict):
+                templates.append(dict(payload))
+        return templates
+
+    def get_mission_template(self, template_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                """
+                SELECT template_json
+                FROM orchestration_mission_templates
+                WHERE template_id = ?
+                """,
+                (template_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        payload = self._parse_json(str(row["template_json"]), {})
+        if not isinstance(payload, dict):
+            return None
+        return dict(payload)
 
     @staticmethod
     def _parse_json(payload: str, default: Any) -> Any:
